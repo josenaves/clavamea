@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
         .parse::<i64>()
         .expect("OWNER_ID must be a valid integer");
     let database_url =
-        env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:clavamea.db".to_string());
+        env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:data/clavamea.db".to_string());
     let locales_dir = env::var("LOCALES_DIR").unwrap_or_else(|_| "./locales".to_string());
     let max_conversation_length = env::var("MAX_CONVERSATION_LENGTH")
         .unwrap_or_else(|_| "20".to_string())
