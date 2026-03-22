@@ -44,16 +44,16 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Para tags semânticas (v1.2.3) - apenas quando push é uma tag
-            type=match,pattern=v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+),group=${{github.ref_name}},enable=${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
-            type=match,pattern=v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+),group=${{github.ref_name}},value=v{{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
-            type=match,pattern=v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+),group=${{github.ref_name}},value=v{{major}},enable=${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
+            # Para tags semânticas (v1.2.3)
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             
             # Para branch main (usar commit SHA como tag)
             type=raw,value=sha-{{sha}},enable={{is_default_branch}}
             
-            # Tag latest apenas para releases com tag
-            type=raw,value=latest,enable={{is_default_branch && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')}}
+            # Tag latest apenas para releases
+            type=raw,value=latest,enable={{is_default_branch && github.ref_type == 'tag'}}
 
       # Build and push Docker image with Buildx (don't push on PR)
       - name: Build and push Docker image
