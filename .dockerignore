@@ -1,0 +1,9 @@
+target/
+.env
+*.db
+*.db-shm
+*.db-wal
+.fastembed_cache/
+memory/
+.claude/
+.git/
