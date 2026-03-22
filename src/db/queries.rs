@@ -246,10 +246,15 @@ pub async fn create_user_pending(pool: &Pool, user_id: i64, username: Option<&st
 
 /// Ensure the owner exists and is authorized.
 pub async fn ensure_owner_exists(pool: &Pool, owner_id: i64) -> Result<()> {
+    // Always ensure the owner is set as owner, regardless of current state
     sqlx::query(
-        "INSERT INTO users (id, role, authorized) VALUES (?, 'owner', 1) 
-         ON CONFLICT(id) DO UPDATE SET role = 'owner', authorized = 1",
+        "INSERT OR REPLACE INTO users (id, role, authorized, username, full_name) 
+         VALUES (?, 'owner', 1, 
+                 COALESCE((SELECT username FROM users WHERE id = ?), NULL),
+                 COALESCE((SELECT full_name FROM users WHERE id = ?), NULL))",
     )
+    .bind(owner_id)
+    .bind(owner_id)
     .bind(owner_id)
     .execute(pool)
     .await?;
