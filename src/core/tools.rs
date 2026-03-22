@@ -130,13 +130,14 @@ impl Tool {
                                   IMPORTANT for 'wat' language:\n\
                                   1. You MUST export a function named '_start' (or 'main').\n\
                                   2. Use (export \"_start\" (func $func_name)). DO NOT use the (start) section.\n\
-                                  3. To print to stdout, you must import and use 'wasi_snapshot_preview1' -> 'fd_write'.\n\n\
+                                  3. To print to stdout, you must import and use 'wasi_snapshot_preview1' -> 'fd_write'.\n\
+                                  4. CRITICAL: In WAT string literals, you MUST double-escape newlines as \\\\n to prevent JSON from evaluating them into literal newlines.\n\n\
                                   Example WAT for 'Hello World':\n\
                                   (module\n\
                                     (import \"wasi_snapshot_preview1\" \"fd_write\" (func $fd_write (param i32 i32 i32 i32) (result i32)))\n\
                                     (memory 1)\n\
                                     (export \"memory\" (memory 0))\n\
-                                    (data (i32.const 8) \"Hello, Wasm!\\n\")\n\
+                                    (data (i32.const 8) \"Hello, Wasm!\\\\n\")\n\
                                     (func $main (export \"_start\")\n\
                                       (i32.const 0) (i32.const 8) (i32.store)\n\
                                       (i32.const 4) (i32.const 13) (i32.store)\n\
