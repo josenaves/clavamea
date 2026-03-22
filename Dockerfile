@@ -11,6 +11,7 @@ RUN rm -f target/release/deps/clavamea*
 
 # Copy source and build actual binary
 COPY . .
+ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
 # Runtime Stage

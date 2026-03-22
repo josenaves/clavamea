@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO document_chunks (document_id, content, embedding) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "a731e3cc3f85cba67ed329f54a90d730bc72cdcfda61877ea42f22d1b7c08619"
+}

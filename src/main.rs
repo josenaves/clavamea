@@ -18,7 +18,6 @@ use dotenv::dotenv;
 use teloxide::dispatching::Dispatcher;
 use teloxide::dptree;
 use tracing::{error, info, warn};
-use tracing_subscriber;
 
 use crate::bot::{router, state::AppState};
 use crate::core::engine::{Engine, EngineConfig};
