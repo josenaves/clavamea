@@ -1,10 +1,10 @@
+use crate::core::memory::{ConversationMemory, Message, ToolCall};
 use anyhow::Result;
 use serde_json::Value;
-use crate::core::memory::{ConversationMemory, Message, ToolCall};
 
-use std::sync::Arc;
 use crate::core::storage::MemoryStorage;
 use crate::core::tools::Tool;
+use std::sync::Arc;
 
 /// Enum for LLM responses, either plain text or tool calls.
 #[derive(Debug)]
@@ -38,14 +38,27 @@ impl Engine {
         let client = reqwest::Client::new();
         let storage = config.storage.clone();
         let allowed_paths = config.allowed_paths.clone();
-        Ok(Self { config, client, storage, allowed_paths })
+        Ok(Self {
+            config,
+            client,
+            storage,
+            allowed_paths,
+        })
     }
 
     /// Generate a response based on conversation history and optional tools for a specific user.
-    pub async fn generate(&self, user_id: i64, memory: &ConversationMemory, tools: &[Tool], _lang: &str) -> Result<LLMResponse> {
+    pub async fn generate(
+        &self,
+        user_id: i64,
+        memory: &ConversationMemory,
+        tools: &[Tool],
+        _lang: &str,
+    ) -> Result<LLMResponse> {
         let memory_context = self.storage.build_context_string(user_id);
-        let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
-        
+        let current_time = chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S %Z")
+            .to_string();
+
         let system_prompt = format!(
             "You are ClavaMea, a private, sovereign AI assistant running locally on the user's system. \
             You have full access to past conversation history and long-term memory because the system explicitly provides it to you. \
@@ -59,7 +72,7 @@ impl Engine {
             - DO NOT use Markdown tables. They are not supported by the platform.\n\
             - Use bulleted lists or bold text for structured data instead.\n\n\
             The current system date and time is: {}\n\n\
-            Here is your long-term memory and persona context (specific to this user):\n{}", 
+            Here is your long-term memory and persona context (specific to this user):\n{}",
             current_time, memory_context
         );
 

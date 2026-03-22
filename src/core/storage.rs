@@ -20,7 +20,7 @@ impl MemoryStorage {
     /// Initialize the memory storage system.
     pub fn new<P: AsRef<Path>>(base_dir: P) -> Result<Self> {
         let base_dir = base_dir.as_ref().to_path_buf();
-        
+
         // Ensure the base directory exists
         if !base_dir.exists() {
             fs::create_dir_all(&base_dir)
@@ -43,9 +43,18 @@ impl MemoryStorage {
         }
 
         let files = vec![
-            ("MEMORY.md", "# Long-term Memory\n\nThis file contains curated facts that remain true over time.\n"),
-            ("USER.md", "# User Profile\n\nPreferences and working style of the user.\n"),
-            ("SOUL.md", "# Assistant Personality\n\nRules and behavior guidelines for ClavaMea.\n"),
+            (
+                "MEMORY.md",
+                "# Long-term Memory\n\nThis file contains curated facts that remain true over time.\n",
+            ),
+            (
+                "USER.md",
+                "# User Profile\n\nPreferences and working style of the user.\n",
+            ),
+            (
+                "SOUL.md",
+                "# Assistant Personality\n\nRules and behavior guidelines for ClavaMea.\n",
+            ),
         ];
 
         for (filename, default_content) in files {
@@ -79,10 +88,10 @@ impl MemoryStorage {
     /// Append a note to today's daily log for a user.
     pub fn append_daily_note(&self, user_id: i64, content: &str) -> Result<()> {
         use std::io::Write;
-        
+
         self.ensure_user_files(user_id)?;
         let path = self.daily_note_path(user_id);
-        
+
         // If it doesn't exist, start it with a header
         if !path.exists() {
             let today = Utc::now().format("%Y-%m-%d").to_string();
@@ -102,20 +111,27 @@ impl MemoryStorage {
     }
 
     /// Update a memory file by appending content for a user.
-    pub fn update_file(&self, user_id: i64, filename: &str, content: &str, append: bool) -> Result<()> {
+    pub fn update_file(
+        &self,
+        user_id: i64,
+        filename: &str,
+        content: &str,
+        append: bool,
+    ) -> Result<()> {
         self.ensure_user_files(user_id)?;
         let path = self.user_dir(user_id).join(filename);
-        
+
         let mut options = fs::OpenOptions::new();
         options.write(true).create(true);
-        
+
         if append {
             options.append(true);
         } else {
             options.truncate(true);
         }
 
-        let mut file = options.open(&path)
+        let mut file = options
+            .open(&path)
             .with_context(|| format!("Failed to open memory file {:?}", path))?;
 
         use std::io::Write;
@@ -151,9 +167,12 @@ impl MemoryStorage {
                 long_term_memory = memory;
             }
         }
-        
+
         if !long_term_memory.is_empty() {
-            context.push_str(&format!("--- LONG TERM MEMORY ---\n{}\n\n", long_term_memory.trim()));
+            context.push_str(&format!(
+                "--- LONG TERM MEMORY ---\n{}\n\n",
+                long_term_memory.trim()
+            ));
         }
 
         // Include yesterday's notes if they exist
@@ -162,7 +181,10 @@ impl MemoryStorage {
         let yesterday_path = format!("{}.md", yesterday_str);
         if let Ok(daily_yesterday) = self.read_file(user_id, &yesterday_path) {
             if !daily_yesterday.trim().is_empty() {
-                context.push_str(&format!("--- YESTERDAY'S RECENT NOTES ---\n{}\n\n", daily_yesterday.trim()));
+                context.push_str(&format!(
+                    "--- YESTERDAY'S RECENT NOTES ---\n{}\n\n",
+                    daily_yesterday.trim()
+                ));
             }
         }
 
@@ -171,7 +193,10 @@ impl MemoryStorage {
         let daily_path = format!("{}.md", today);
         if let Ok(daily) = self.read_file(user_id, &daily_path) {
             if !daily.trim().is_empty() {
-                context.push_str(&format!("--- TODAY'S RECENT NOTES ---\n{}\n\n", daily.trim()));
+                context.push_str(&format!(
+                    "--- TODAY'S RECENT NOTES ---\n{}\n\n",
+                    daily.trim()
+                ));
             }
         }
 
@@ -202,7 +227,9 @@ mod tests {
         let storage = MemoryStorage::new(dir.path()).unwrap();
         let user_id = 123;
 
-        storage.append_daily_note(user_id, "User said hello.").unwrap();
+        storage
+            .append_daily_note(user_id, "User said hello.")
+            .unwrap();
         let note_path = storage.daily_note_path(user_id);
         assert!(note_path.exists());
 
@@ -225,20 +252,22 @@ mod tests {
         fs::write(user_dir.join("SOUL.md"), "I am a helpful assistant.").unwrap();
         fs::write(user_dir.join("USER.md"), "User likes Rust.").unwrap();
         fs::write(user_dir.join("MEMORY.md"), "The project is ClavaMea.").unwrap();
-        storage.append_daily_note(user_id, "Testing context.").unwrap();
+        storage
+            .append_daily_note(user_id, "Testing context.")
+            .unwrap();
 
         let context = storage.build_context_string(user_id);
-        
+
         // Assert all sections are injected
         assert!(context.contains("--- SOUL ---"));
         assert!(context.contains("I am a helpful assistant."));
-        
+
         assert!(context.contains("--- USER PREFERENCES ---"));
         assert!(context.contains("User likes Rust."));
-        
+
         assert!(context.contains("--- LONG TERM MEMORY ---"));
         assert!(context.contains("The project is ClavaMea."));
-        
+
         assert!(context.contains("--- TODAY'S RECENT NOTES ---"));
         assert!(context.contains("Testing context."));
     }

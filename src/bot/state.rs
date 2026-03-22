@@ -1,9 +1,9 @@
 //! Shared application state.
 
-use std::sync::Arc;
 use crate::core::{Engine, RagManager};
 use crate::db::Pool;
 use crate::i18n::BundleManager;
+use std::sync::Arc;
 
 /// Global application state shared across handlers.
 #[derive(Clone)]

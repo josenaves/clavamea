@@ -1,4 +1,4 @@
-use pulldown_cmark::{Parser, Options, Event, Tag, TagEnd};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 /// Common trait for message renderers.
 pub trait Renderer {
@@ -19,7 +19,7 @@ impl Renderer for TelegramRenderer {
         let mut options = Options::empty();
         options.insert(Options::ENABLE_STRIKETHROUGH);
         // We don't enable tables or task lists as Telegram doesn't support them well via HTML
-        
+
         let parser = Parser::new_ext(text, options);
         let mut html_output = String::with_capacity(text.len() * 3 / 2);
 
@@ -75,7 +75,6 @@ impl Renderer for TelegramRenderer {
 }
 
 impl TelegramRenderer {
-
     fn escape(&self, text: &str) -> String {
         text.replace("&", "&amp;")
             .replace("<", "&lt;")
@@ -92,10 +91,13 @@ impl TelegramMarkdownV2Renderer {
     }
 
     /// Escape characters for MarkdownV2 normal text.
-    /// Any character with code between 1 and 126 inclusively can be escaped anywhere with a preceding '\' character, 
+    /// Any character with code between 1 and 126 inclusively can be escaped anywhere with a preceding '\' character,
     /// in which case it is treated as an ordinary character and not a part of the markup.
     fn escape_normal(&self, text: &str) -> String {
-        let to_escape = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
+        let to_escape = [
+            '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.',
+            '!',
+        ];
         let mut escaped = String::with_capacity(text.len() * 2);
         for c in text.chars() {
             if to_escape.contains(&c) {
@@ -123,7 +125,7 @@ impl Renderer for TelegramMarkdownV2Renderer {
     fn render(&self, text: &str) -> String {
         let mut options = Options::empty();
         options.insert(Options::ENABLE_STRIKETHROUGH);
-        
+
         let parser = Parser::new_ext(text, options);
         let mut md_output = String::with_capacity(text.len() * 3 / 2);
         let mut link_url = None;
@@ -196,20 +198,26 @@ mod tests {
     #[test]
     fn test_markdown_v2_escaping() {
         let renderer = TelegramMarkdownV2Renderer::new();
-        
+
         // Normal text
         assert_eq!(renderer.render("Hello World!"), "Hello World\\!");
         assert_eq!(renderer.render("1.5.0"), "1\\.5\\.0");
-        
+
         // Bold and Italic
         assert_eq!(renderer.render("**Bold**"), "*Bold*"); // pulldown-cmark Normalizes to single * for strong in some cases? 
         // Actually pulldown-cmark uses Tag::Strong for both ** and __. Telegram uses * for strong and _ for emphasis.
-        
+
         // Code
         assert_eq!(renderer.render("`code`"), "`code`");
-        assert_eq!(renderer.render("`code with \\ and `` `"), "`code with \\\\ and \\`\\` `");
-        
+        assert_eq!(
+            renderer.render("`code with \\ and `` `"),
+            "`code with \\\\ and \\`\\` `"
+        );
+
         // Links
-        assert_eq!(renderer.render("[Link](https://example.com)"), "[Link](https://example.com)");
+        assert_eq!(
+            renderer.render("[Link](https://example.com)"),
+            "[Link](https://example.com)"
+        );
     }
 }

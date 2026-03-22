@@ -101,7 +101,10 @@ async fn main() -> Result<()> {
     // Initialize LLM engine
     info!("Initializing LLM engine...");
     let memory_dir = env::var("MEMORY_DIR").unwrap_or_else(|_| "./memory".to_string());
-    let storage = Arc::new(crate::core::storage::MemoryStorage::new(&memory_dir).expect("Failed to initialize memory storage"));
+    let storage = Arc::new(
+        crate::core::storage::MemoryStorage::new(&memory_dir)
+            .expect("Failed to initialize memory storage"),
+    );
 
     let engine = if llm_api_url.is_some() && llm_api_key.is_some() {
         let config = EngineConfig {
@@ -120,28 +123,34 @@ async fn main() -> Result<()> {
             }
             Err(e) => {
                 warn!("Failed to initialize LLM engine: {}. Using placeholder.", e);
-                Arc::new(Engine::new(EngineConfig {
-                    api_url: "placeholder".to_string(),
-                    api_key: "placeholder".to_string(),
-                    model: "placeholder".to_string(),
-                    max_tokens: 4096,
-                    temperature: 0.7,
-                    storage: storage.clone(),
-                    allowed_paths: dynamic_allowed_paths.clone(),
-                }).expect("Failed to init placeholder engine"))
+                Arc::new(
+                    Engine::new(EngineConfig {
+                        api_url: "placeholder".to_string(),
+                        api_key: "placeholder".to_string(),
+                        model: "placeholder".to_string(),
+                        max_tokens: 4096,
+                        temperature: 0.7,
+                        storage: storage.clone(),
+                        allowed_paths: dynamic_allowed_paths.clone(),
+                    })
+                    .expect("Failed to init placeholder engine"),
+                )
             }
         }
     } else {
         warn!("LLM API configuration not found. Using placeholder engine.");
-        Arc::new(Engine::new(EngineConfig {
-            api_url: "placeholder".to_string(),
-            api_key: "placeholder".to_string(),
-            model: "placeholder".to_string(),
-            max_tokens: 4096,
-            temperature: 0.7,
-            storage,
-            allowed_paths: dynamic_allowed_paths,
-        }).expect("Failed to init placeholder engine"))
+        Arc::new(
+            Engine::new(EngineConfig {
+                api_url: "placeholder".to_string(),
+                api_key: "placeholder".to_string(),
+                model: "placeholder".to_string(),
+                max_tokens: 4096,
+                temperature: 0.7,
+                storage,
+                allowed_paths: dynamic_allowed_paths,
+            })
+            .expect("Failed to init placeholder engine"),
+        )
     };
 
     // Initialize RAG manager

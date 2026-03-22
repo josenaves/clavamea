@@ -18,8 +18,6 @@ pub async fn create_pool(database_url: &str) -> Result<Pool> {
 
 /// Run database migrations.
 pub async fn run_migrations(pool: &Pool) -> Result<()> {
-    sqlx::migrate!()
-        .run(pool)
-        .await?;
+    sqlx::migrate!().run(pool).await?;
     Ok(())
 }

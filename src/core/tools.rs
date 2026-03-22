@@ -1,9 +1,9 @@
-use serde_json::Value;
-use anyhow::{Result, anyhow};
-use std::sync::Arc;
+use crate::core::storage::MemoryStorage;
 use crate::db::connection::Pool;
 use crate::db::models::{Interaction, NewInteraction};
-use crate::core::storage::MemoryStorage;
+use anyhow::{Result, anyhow};
+use serde_json::Value;
+use std::sync::Arc;
 
 use crate::core::rag::RagManager;
 
@@ -340,10 +340,10 @@ impl Tool {
 
     /// Execute the tool with the given arguments.
     pub async fn execute(
-        &self, 
+        &self,
         user_id: i64,
-        args: &Value, 
-        storage: Arc<MemoryStorage>, 
+        args: &Value,
+        storage: Arc<MemoryStorage>,
         rag: Arc<RagManager>,
         wasm: Arc<crate::core::wasm::WasmRuntime>,
         allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
@@ -351,16 +351,24 @@ impl Tool {
     ) -> Result<String> {
         match self {
             Tool::WebSearch => {
-                let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing 'query' argument"))?;
+                let query = args["query"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'query' argument"))?;
                 self.perform_web_search(query).await
             }
             Tool::FileReader => {
-                let path = args["path"].as_str().ok_or_else(|| anyhow!("Missing 'path' argument"))?;
+                let path = args["path"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
                 self.perform_file_read(path, allowed_paths).await
             }
             Tool::SaveMemory => {
-                let target = args["target"].as_str().ok_or_else(|| anyhow!("Missing 'target' argument"))?;
-                let content = args["content"].as_str().ok_or_else(|| anyhow!("Missing 'content' argument"))?;
+                let target = args["target"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'target' argument"))?;
+                let content = args["content"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'content' argument"))?;
 
                 match target {
                     "DAILY" => {
@@ -375,29 +383,47 @@ impl Tool {
                 }
             }
             Tool::IndexDocument => {
-                let path = args["path"].as_str().ok_or_else(|| anyhow!("Missing 'path' argument"))?;
+                let path = args["path"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
                 let content_res = self.perform_file_read(path, allowed_paths).await?;
                 // perform_file_read returns a formatted string with markdown code blocks, extract the content
-                let content = content_res.split("```\n").nth(1).and_then(|s| s.split("\n```").next()).unwrap_or("");
-                
-                let filename = std::path::Path::new(path).file_name()
-                    .and_then(|n| n.to_str()).unwrap_or(path);
-                
-                rag.ingest_document(user_id, filename, path, content).await?;
+                let content = content_res
+                    .split("```\n")
+                    .nth(1)
+                    .and_then(|s| s.split("\n```").next())
+                    .unwrap_or("");
+
+                let filename = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path);
+
+                rag.ingest_document(user_id, filename, path, content)
+                    .await?;
                 Ok(format!("Successfully indexed document: {}", path))
             }
             Tool::SearchKnowledge => {
-                let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing 'query' argument"))?;
+                let query = args["query"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'query' argument"))?;
                 let results = rag.search(user_id, query, 3).await?;
                 if results.is_empty() {
                     Ok("No relevant knowledge found in indexed documents.".to_string())
                 } else {
-                    Ok(format!("Found the following relevant information:\n\n{}", results.join("\n\n---\n\n")))
+                    Ok(format!(
+                        "Found the following relevant information:\n\n{}",
+                        results.join("\n\n---\n\n")
+                    ))
                 }
             }
             Tool::ExecuteCode => {
-                let language = args["language"].as_str().ok_or_else(|| anyhow!("Missing 'language' argument"))?;
-                let code = args["code"].as_str().ok_or_else(|| anyhow!("Missing 'code' argument"))?;
+                let language = args["language"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'language' argument"))?;
+                let code = args["code"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'code' argument"))?;
 
                 match language {
                     "wat" => {
@@ -412,53 +438,83 @@ impl Tool {
                 }
             }
             Tool::ListDir => {
-                let path = args["path"].as_str().ok_or_else(|| anyhow!("Missing 'path' argument"))?;
+                let path = args["path"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
                 self.perform_list_dir(path, allowed_paths).await
             }
             Tool::MoveFile => {
-                let source = args["source"].as_str().ok_or_else(|| anyhow!("Missing 'source' argument"))?;
-                let destination = args["destination"].as_str().ok_or_else(|| anyhow!("Missing 'destination' argument"))?;
-                self.perform_move_file(source, destination, allowed_paths).await
+                let source = args["source"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'source' argument"))?;
+                let destination = args["destination"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'destination' argument"))?;
+                self.perform_move_file(source, destination, allowed_paths)
+                    .await
             }
             Tool::CreateDir => {
-                let path = args["path"].as_str().ok_or_else(|| anyhow!("Missing 'path' argument"))?;
+                let path = args["path"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
                 self.perform_create_dir(path, allowed_paths).await
             }
             Tool::AuthorizePath => {
-                let path = args["path"].as_str().ok_or_else(|| anyhow!("Missing 'path' argument"))?;
+                let path = args["path"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
                 let mut paths = allowed_paths.write().await;
                 paths.push(path.to_string());
                 Ok(format!("Successfully authorized path: {}", path))
             }
             Tool::AddVehicle => {
-                let name = args["name"].as_str().ok_or_else(|| anyhow!("Missing 'name' argument"))?;
+                let name = args["name"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'name' argument"))?;
                 let model = args["model"].as_str();
                 let plate = args["plate"].as_str();
-                
-                let id = crate::db::queries::insert_vehicle(db_pool, user_id, name, model, plate).await?;
-                Ok(format!("Vehicle '{}' added successfully with ID: {}", name, id))
+
+                let id = crate::db::queries::insert_vehicle(db_pool, user_id, name, model, plate)
+                    .await?;
+                Ok(format!(
+                    "Vehicle '{}' added successfully with ID: {}",
+                    name, id
+                ))
             }
             Tool::LogFuel => {
-                let vehicle_id = args["vehicle_id"].as_i64().ok_or_else(|| anyhow!("Missing 'vehicle_id' argument"))?;
-                
+                let vehicle_id = args["vehicle_id"]
+                    .as_i64()
+                    .ok_or_else(|| anyhow!("Missing 'vehicle_id' argument"))?;
+
                 // Verify ownership
                 if !crate::db::queries::is_vehicle_owner(db_pool, vehicle_id, user_id).await? {
                     return Err(anyhow!("Access denied: You do not own this vehicle."));
                 }
 
-                let odometer = args["odometer"].as_f64().ok_or_else(|| anyhow!("Missing 'odometer' argument"))?;
-                let liters = args["liters"].as_f64().ok_or_else(|| anyhow!("Missing 'liters' argument"))?;
-                let price_per_liter = args["price_per_liter"].as_f64().ok_or_else(|| anyhow!("Missing 'price_per_liter' argument"))?;
-                let fuel_type = args["fuel_type"].as_str().ok_or_else(|| anyhow!("Missing 'fuel_type' argument"))?;
-                
+                let odometer = args["odometer"]
+                    .as_f64()
+                    .ok_or_else(|| anyhow!("Missing 'odometer' argument"))?;
+                let liters = args["liters"]
+                    .as_f64()
+                    .ok_or_else(|| anyhow!("Missing 'liters' argument"))?;
+                let price_per_liter = args["price_per_liter"]
+                    .as_f64()
+                    .ok_or_else(|| anyhow!("Missing 'price_per_liter' argument"))?;
+                let fuel_type = args["fuel_type"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'fuel_type' argument"))?;
+
                 let total_cost = liters * price_per_liter;
-                
+
                 // Calculate km/L if there's a previous log
                 let last_log = crate::db::queries::get_last_fuel_log(db_pool, vehicle_id).await?;
                 let consumption_msg = if let Some(last) = last_log {
                     let km_diff = odometer - last.odometer;
                     if km_diff > 0.0 {
-                        format!("\nConsumo desde o último abastecimento: {:.2} km/L", km_diff / liters)
+                        format!(
+                            "\nConsumo desde o último abastecimento: {:.2} km/L",
+                            km_diff / liters
+                        )
                     } else {
                         "".to_string()
                     }
@@ -466,27 +522,54 @@ impl Tool {
                     "".to_string()
                 };
 
-                crate::db::queries::insert_fuel_log(db_pool, vehicle_id, odometer, liters, price_per_liter, fuel_type, total_cost).await?;
-                Ok(format!("Fuel log saved. Total cost: R$ {:.2}{}", total_cost, consumption_msg))
+                crate::db::queries::insert_fuel_log(
+                    db_pool,
+                    vehicle_id,
+                    odometer,
+                    liters,
+                    price_per_liter,
+                    fuel_type,
+                    total_cost,
+                )
+                .await?;
+                Ok(format!(
+                    "Fuel log saved. Total cost: R$ {:.2}{}",
+                    total_cost, consumption_msg
+                ))
             }
             Tool::LogExpense => {
-                let vehicle_id = args["vehicle_id"].as_i64().ok_or_else(|| anyhow!("Missing 'vehicle_id' argument"))?;
-                
+                let vehicle_id = args["vehicle_id"]
+                    .as_i64()
+                    .ok_or_else(|| anyhow!("Missing 'vehicle_id' argument"))?;
+
                 // Verify ownership
                 if !crate::db::queries::is_vehicle_owner(db_pool, vehicle_id, user_id).await? {
                     return Err(anyhow!("Access denied: You do not own this vehicle."));
                 }
 
-                let category = args["category"].as_str().ok_or_else(|| anyhow!("Missing 'category' argument"))?;
-                let cost = args["cost"].as_f64().ok_or_else(|| anyhow!("Missing 'cost' argument"))?;
+                let category = args["category"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'category' argument"))?;
+                let cost = args["cost"]
+                    .as_f64()
+                    .ok_or_else(|| anyhow!("Missing 'cost' argument"))?;
                 let description = args["description"].as_str();
 
-                crate::db::queries::insert_expense_log(db_pool, vehicle_id, category, description, cost).await?;
+                crate::db::queries::insert_expense_log(
+                    db_pool,
+                    vehicle_id,
+                    category,
+                    description,
+                    cost,
+                )
+                .await?;
                 Ok(format!("Expense log saved for category '{}'.", category))
             }
             Tool::GetVehicleReport => {
-                let vehicle_id = args["vehicle_id"].as_i64().ok_or_else(|| anyhow!("Missing 'vehicle_id' argument"))?;
-                
+                let vehicle_id = args["vehicle_id"]
+                    .as_i64()
+                    .ok_or_else(|| anyhow!("Missing 'vehicle_id' argument"))?;
+
                 // Verify ownership
                 if !crate::db::queries::is_vehicle_owner(db_pool, vehicle_id, user_id).await? {
                     return Err(anyhow!("Access denied: You do not own this vehicle."));
@@ -495,65 +578,94 @@ impl Tool {
                 // Simplified report: total expenses
                 let now = chrono::Utc::now();
                 let start = now - chrono::Duration::days(365); // Last year for now
-                
-                let fuel_logs = crate::db::queries::get_vehicle_fuel_logs(db_pool, vehicle_id, start, now).await?;
-                let expenses = crate::db::queries::get_vehicle_expenses(db_pool, vehicle_id, start, now).await?;
-                
+
+                let fuel_logs =
+                    crate::db::queries::get_vehicle_fuel_logs(db_pool, vehicle_id, start, now)
+                        .await?;
+                let expenses =
+                    crate::db::queries::get_vehicle_expenses(db_pool, vehicle_id, start, now)
+                        .await?;
+
                 let total_fuel: f64 = fuel_logs.iter().map(|l| l.total_cost).sum();
                 let total_liters: f64 = fuel_logs.iter().map(|l| l.liters).sum();
                 let total_other: f64 = expenses.iter().map(|e| e.cost).sum();
-                
+
                 let mut report = format!("🚗 **Relatório do Veículo (ID: {})**\n", vehicle_id);
-                report.push_str(&format!("⛽ Gastos com combustível: R$ {:.2} ({:.2} L)\n", total_fuel, total_liters));
+                report.push_str(&format!(
+                    "⛽ Gastos com combustível: R$ {:.2} ({:.2} L)\n",
+                    total_fuel, total_liters
+                ));
                 report.push_str(&format!("🛠️ Outros gastos: R$ {:.2}\n", total_other));
-                report.push_str(&format!("💰 **Total geral: R$ {:.2}**\n", total_fuel + total_other));
-                
+                report.push_str(&format!(
+                    "💰 **Total geral: R$ {:.2}**\n",
+                    total_fuel + total_other
+                ));
+
                 if fuel_logs.len() >= 2 {
                     let first_odo = fuel_logs.first().unwrap().odometer;
                     let last_odo = fuel_logs.last().unwrap().odometer;
                     let total_km = last_odo - first_odo;
                     if total_km > 0.0 {
-                        report.push_str(&format!("📈 Média de consumo geral: {:.2} km/L", total_km / total_liters));
+                        report.push_str(&format!(
+                            "📈 Média de consumo geral: {:.2} km/L",
+                            total_km / total_liters
+                        ));
                     }
                 }
-                
+
                 Ok(report)
             }
             Tool::GeneticsCalculate => {
-                let calc_type = args["calculation_type"].as_str()
+                let calc_type = args["calculation_type"]
+                    .as_str()
                     .ok_or_else(|| anyhow!("Missing 'calculation_type' argument"))?;
 
                 match calc_type {
                     "hardy_weinberg" => {
-                        let affected = args["affected"].as_f64()
-                            .ok_or_else(|| anyhow!("Missing 'affected' argument for hardy_weinberg"))?;
-                        let population = args["population"].as_f64()
-                            .ok_or_else(|| anyhow!("Missing 'population' argument for hardy_weinberg"))?;
+                        let affected = args["affected"].as_f64().ok_or_else(|| {
+                            anyhow!("Missing 'affected' argument for hardy_weinberg")
+                        })?;
+                        let population = args["population"].as_f64().ok_or_else(|| {
+                            anyhow!("Missing 'population' argument for hardy_weinberg")
+                        })?;
 
                         match crate::core::genetics::hardy_weinberg(affected, population) {
-                            Ok(result) => Ok(crate::core::genetics::format_hardy_weinberg(&result, affected, population)),
+                            Ok(result) => Ok(crate::core::genetics::format_hardy_weinberg(
+                                &result, affected, population,
+                            )),
                             Err(e) => Err(anyhow!("{}", e)),
                         }
                     }
                     "punnett" => {
-                        let parent1 = args["parent1"].as_str()
+                        let parent1 = args["parent1"]
+                            .as_str()
                             .ok_or_else(|| anyhow!("Missing 'parent1' argument for punnett"))?;
-                        let parent2 = args["parent2"].as_str()
+                        let parent2 = args["parent2"]
+                            .as_str()
                             .ok_or_else(|| anyhow!("Missing 'parent2' argument for punnett"))?;
 
                         match crate::core::genetics::punnett(parent1, parent2) {
-                            Ok(result) => Ok(crate::core::genetics::format_punnett(&result, parent1, parent2)),
+                            Ok(result) => Ok(crate::core::genetics::format_punnett(
+                                &result, parent1, parent2,
+                            )),
                             Err(e) => Err(anyhow!("{}", e)),
                         }
                     }
-                    _ => Err(anyhow!("Unknown calculation_type: '{}'. Use 'hardy_weinberg' or 'punnett'.", calc_type)),
+                    _ => Err(anyhow!(
+                        "Unknown calculation_type: '{}'. Use 'hardy_weinberg' or 'punnett'.",
+                        calc_type
+                    )),
                 }
             }
         }
     }
 
     /// Read a local file.
-    async fn perform_file_read(&self, path_str: &str, allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>) -> Result<String> {
+    async fn perform_file_read(
+        &self,
+        path_str: &str,
+        allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
+    ) -> Result<String> {
         let canonical_target = self.validate_path(path_str, false, allowed_paths).await?;
 
         use std::io::Read;
@@ -561,15 +673,19 @@ impl Tool {
         let mut buffer = Vec::new();
         // Limit reading to 10KB to avoid flooding the LLM context.
         file.take(10 * 1024).read_to_end(&mut buffer)?;
-        
+
         let content = String::from_utf8_lossy(&buffer).to_string();
         Ok(format!("Content of {}:\n\n```\n{}\n```", path_str, content))
     }
 
     /// List contents of a directory.
-    async fn perform_list_dir(&self, path_str: &str, allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>) -> Result<String> {
+    async fn perform_list_dir(
+        &self,
+        path_str: &str,
+        allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
+    ) -> Result<String> {
         let canonical_target = self.validate_path(path_str, false, allowed_paths).await?;
-        
+
         if !canonical_target.is_dir() {
             return Err(anyhow!("Path is not a directory: {}", path_str));
         }
@@ -587,38 +703,62 @@ impl Tool {
         if entries.is_empty() {
             Ok(format!("Directory {} is empty.", path_str))
         } else {
-            Ok(format!("Contents of {}:\n\n{}", path_str, entries.join("\n")))
+            Ok(format!(
+                "Contents of {}:\n\n{}",
+                path_str,
+                entries.join("\n")
+            ))
         }
     }
 
     /// Move or rename a file/directory.
-    async fn perform_move_file(&self, source_str: &str, dest_str: &str, allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>) -> Result<String> {
-        let canonical_source = self.validate_path(source_str, false, allowed_paths.clone()).await?;
-        
+    async fn perform_move_file(
+        &self,
+        source_str: &str,
+        dest_str: &str,
+        allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
+    ) -> Result<String> {
+        let canonical_source = self
+            .validate_path(source_str, false, allowed_paths.clone())
+            .await?;
+
         // For destination, we allow it to NOT exist yet, so we validate its parent.
         let dest_path = std::path::Path::new(dest_str);
-        let dest_parent = dest_path.parent().unwrap_or_else(|| std::path::Path::new("."));
-        let _ = self.validate_path(dest_parent.to_str().unwrap_or("."), true, allowed_paths).await?;
+        let dest_parent = dest_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let _ = self
+            .validate_path(dest_parent.to_str().unwrap_or("."), true, allowed_paths)
+            .await?;
 
         std::fs::rename(&canonical_source, dest_str)?;
         Ok(format!("Successfully moved {} to {}", source_str, dest_str))
     }
 
     /// Create a directory.
-    async fn perform_create_dir(&self, path_str: &str, allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>) -> Result<String> {
+    async fn perform_create_dir(
+        &self,
+        path_str: &str,
+        allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
+    ) -> Result<String> {
         // Validate that we can create here.
         let _ = self.validate_path(path_str, true, allowed_paths).await?;
-        
+
         std::fs::create_dir_all(path_str)?;
         Ok(format!("Successfully created directory: {}", path_str))
     }
 
     /// Validates a path against security constraints.
     /// Allows paths within the project or paths starting with AUTHORIZED PATHS (from env or chat).
-    async fn validate_path(&self, path_str: &str, allow_non_existent: bool, allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>) -> Result<std::path::PathBuf> {
+    async fn validate_path(
+        &self,
+        path_str: &str,
+        allow_non_existent: bool,
+        allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
+    ) -> Result<std::path::PathBuf> {
         let path = std::path::Path::new(path_str);
         let base_path = std::env::current_dir()?;
-        
+
         // Resolve absolute path
         let absolute_path = if path.is_absolute() {
             path.to_path_buf()
@@ -657,7 +797,10 @@ impl Tool {
             }
         }
 
-        Err(anyhow!("Acesso negado: O caminho {} não está autorizado. Por favor, peça autorização explicitamente pelo chat.", path_str))
+        Err(anyhow!(
+            "Acesso negado: O caminho {} não está autorizado. Por favor, peça autorização explicitamente pelo chat.",
+            path_str
+        ))
     }
 
     /// Perform a web search using the Brave Search API.
@@ -688,14 +831,24 @@ impl Tool {
                 let title = result["title"].as_str().unwrap_or("No Title");
                 let description = result["description"].as_str().unwrap_or("No Description");
                 let url = result["url"].as_str().unwrap_or("#");
-                results.push(format!("{}. {} ({})\n   Snippet: {}", i + 1, title, url, description));
+                results.push(format!(
+                    "{}. {} ({})\n   Snippet: {}",
+                    i + 1,
+                    title,
+                    url,
+                    description
+                ));
             }
         }
 
         if results.is_empty() {
             Ok("No search results found.".to_string())
         } else {
-            Ok(format!("Search results for '{}':\n\n{}", query, results.join("\n\n")))
+            Ok(format!(
+                "Search results for '{}':\n\n{}",
+                query,
+                results.join("\n\n")
+            ))
         }
     }
 }
@@ -706,10 +859,10 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
         1 => vec![], // MVP: No tools
         2 => vec![Tool::WebSearch, Tool::FileReader, Tool::SaveMemory],
         3 => vec![
-            Tool::WebSearch, 
-            Tool::FileReader, 
-            Tool::SaveMemory, 
-            Tool::IndexDocument, 
+            Tool::WebSearch,
+            Tool::FileReader,
+            Tool::SaveMemory,
+            Tool::IndexDocument,
             Tool::SearchKnowledge,
             Tool::ExecuteCode,
             Tool::ListDir,
@@ -725,4 +878,3 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
         _ => vec![],
     }
 }
-

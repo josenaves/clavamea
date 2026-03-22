@@ -6,15 +6,15 @@
 /// Result of a Hardy-Weinberg equilibrium calculation.
 #[derive(Debug)]
 pub struct HardyWeinbergResult {
-    pub q: f64,                          // Recessive allele frequency
-    pub p: f64,                          // Dominant allele frequency
-    pub q_squared: f64,                  // Homozygous recessive (affected)
-    pub two_pq: f64,                     // Heterozygous (carriers)
-    pub p_squared: f64,                  // Homozygous dominant
-    pub carrier_ratio: f64,              // Ratio q / q^2 (carriers per affected)
-    pub het_x_het_affected_risk: f64,    // Risk child is affected (carrier x carrier)
-    pub het_x_het_carrier_risk: f64,     // Risk child is carrier (carrier x carrier)
-    pub het_x_het_unaffected_risk: f64,  // Risk child is unaffected (carrier x carrier)
+    pub q: f64,                         // Recessive allele frequency
+    pub p: f64,                         // Dominant allele frequency
+    pub q_squared: f64,                 // Homozygous recessive (affected)
+    pub two_pq: f64,                    // Heterozygous (carriers)
+    pub p_squared: f64,                 // Homozygous dominant
+    pub carrier_ratio: f64,             // Ratio q / q^2 (carriers per affected)
+    pub het_x_het_affected_risk: f64,   // Risk child is affected (carrier x carrier)
+    pub het_x_het_carrier_risk: f64,    // Risk child is carrier (carrier x carrier)
+    pub het_x_het_unaffected_risk: f64, // Risk child is unaffected (carrier x carrier)
 }
 
 /// Perform Hardy-Weinberg equilibrium calculation.
@@ -38,9 +38,9 @@ pub fn hardy_weinberg(affected: f64, population: f64) -> Result<HardyWeinbergRes
     let p_squared = p * p;
 
     // Risk calculations for carrier x carrier cross
-    let het_x_het_affected_risk = 0.25;    // 1/4 probability
-    let het_x_het_carrier_risk = 0.50;     // 2/4 probability
-    let het_x_het_unaffected_risk = 0.25;  // 1/4 probability
+    let het_x_het_affected_risk = 0.25; // 1/4 probability
+    let het_x_het_carrier_risk = 0.50; // 2/4 probability
+    let het_x_het_unaffected_risk = 0.25; // 1/4 probability
 
     Ok(HardyWeinbergResult {
         q,
@@ -48,7 +48,11 @@ pub fn hardy_weinberg(affected: f64, population: f64) -> Result<HardyWeinbergRes
         q_squared,
         two_pq,
         p_squared,
-        carrier_ratio: if q_squared > 0.0 { two_pq / q_squared } else { 0.0 },
+        carrier_ratio: if q_squared > 0.0 {
+            two_pq / q_squared
+        } else {
+            0.0
+        },
         het_x_het_affected_risk,
         het_x_het_carrier_risk,
         het_x_het_unaffected_risk,
@@ -77,10 +81,14 @@ pub fn format_hardy_weinberg(r: &HardyWeinbergResult, affected: f64, population:
         • Risco de filho afetado (qq): 25%\n\
         • Risco de filho portador (Hq): 50%\n\
         • Risco de filho não afetado (HH): 25%",
-        population, affected,
-        r.q_squared * 100.0, affected,
-        r.two_pq * 100.0, r.two_pq * population,
-        r.p_squared * 100.0, r.p_squared * population,
+        population,
+        affected,
+        r.q_squared * 100.0,
+        affected,
+        r.two_pq * 100.0,
+        r.two_pq * population,
+        r.p_squared * 100.0,
+        r.p_squared * population,
         r.q,
         r.p,
         r.carrier_ratio,
@@ -90,10 +98,10 @@ pub fn format_hardy_weinberg(r: &HardyWeinbergResult, affected: f64, population:
 /// Result of a Punnett square cross.
 #[derive(Debug)]
 pub struct PunnettResult {
-    pub offspring: Vec<String>,    // All 4 genotype outcomes
+    pub offspring: Vec<String>, // All 4 genotype outcomes
     pub genotype_counts: std::collections::HashMap<String, usize>,
-    pub phenotype_affected: f64,   // Proportion affected (homozygous recessive)
-    pub phenotype_carrier: f64,    // Proportion carriers
+    pub phenotype_affected: f64, // Proportion affected (homozygous recessive)
+    pub phenotype_carrier: f64,  // Proportion carriers
     pub phenotype_unaffected: f64, // Proportion fully unaffected
 }
 
@@ -126,7 +134,8 @@ pub fn punnett(parent1: &str, parent2: &str) -> Result<PunnettResult, String> {
         }
     }
 
-    let mut genotype_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut genotype_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for g in &offspring {
         *genotype_counts.entry(g.clone()).or_insert(0) += 1;
     }
@@ -171,7 +180,11 @@ fn parse_genotype(genotype: &str) -> Result<Vec<char>, String> {
 /// Format a Punnett square result as a human-readable string.
 pub fn format_punnett(r: &PunnettResult, parent1: &str, parent2: &str) -> String {
     let mut genotypes_str = String::new();
-    let mut sorted: Vec<(String, usize)> = r.genotype_counts.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    let mut sorted: Vec<(String, usize)> = r
+        .genotype_counts
+        .iter()
+        .map(|(k, v)| (k.clone(), *v))
+        .collect();
     sorted.sort_by(|a, b| b.0.cmp(&a.0)); // dominant first
     for (g, count) in &sorted {
         let pct = (*count as f64 / 4.0) * 100.0;
@@ -187,7 +200,8 @@ pub fn format_punnett(r: &PunnettResult, parent1: &str, parent2: &str) -> String
         • Afetados (recessivo homozigoto): {:.0}%\n\
         • Portadores (heterozigoto): {:.0}%\n\
         • Não afetados (dominante homozigoto): {:.0}%",
-        parent1, parent2,
+        parent1,
+        parent2,
         genotypes_str,
         r.phenotype_affected * 100.0,
         r.phenotype_carrier * 100.0,

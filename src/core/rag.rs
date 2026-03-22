@@ -1,10 +1,10 @@
 //! Local Retrieval-Augmented Generation (RAG) system.
 
-use anyhow::Result;
-use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
-use std::sync::Arc;
 use crate::db::Pool;
 use crate::db::models::DocumentChunk;
+use anyhow::Result;
+use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use std::sync::Arc;
 
 /// Manages the local RAG system: embedding documents and searching across them.
 pub struct RagManager {
@@ -29,7 +29,13 @@ impl RagManager {
     }
 
     /// Ingest a text document into the vector database for a specific user.
-    pub async fn ingest_document(&self, user_id: i64, filename: &str, path: &str, content: &str) -> Result<()> {
+    pub async fn ingest_document(
+        &self,
+        user_id: i64,
+        filename: &str,
+        path: &str,
+        content: &str,
+    ) -> Result<()> {
         // 1. Chunk the content
         let chunks = self.chunk_text(content, 500, 50);
 
@@ -41,7 +47,7 @@ impl RagManager {
 
         // Insert doc with user_id using runtime query to avoid compile-time schema check
         let doc_id: i64 = sqlx::query_scalar(
-            "INSERT INTO documents (user_id, filename, path) VALUES (?, ?, ?) RETURNING id"
+            "INSERT INTO documents (user_id, filename, path) VALUES (?, ?, ?) RETURNING id",
         )
         .bind(user_id)
         .bind(filename)
@@ -53,7 +59,9 @@ impl RagManager {
             let embedding_bytes = self.vector_to_bytes(&embeddings[i]);
             sqlx::query!(
                 "INSERT INTO document_chunks (document_id, content, embedding) VALUES (?, ?, ?)",
-                doc_id, chunk_content, embedding_bytes
+                doc_id,
+                chunk_content,
+                embedding_bytes
             )
             .execute(&mut *tx)
             .await?;
@@ -67,7 +75,7 @@ impl RagManager {
     pub async fn search(&self, user_id: i64, query: &str, limit: usize) -> Result<Vec<String>> {
         // 1. Embed the query
         let query_embedding = &self.embedding_model.embed(vec![query], None)?[0];
-        
+
         // 2. Fetch all chunks for this user from the database
         let all_chunks: Vec<DocumentChunk> = sqlx::query_as::<_, DocumentChunk>(
             r#"
@@ -75,7 +83,7 @@ impl RagManager {
             FROM document_chunks c 
             JOIN documents d ON c.document_id = d.id 
             WHERE d.user_id = ?
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_all(&self.db_pool)
@@ -111,7 +119,7 @@ impl RagManager {
             let end = std::cmp::min(start + chunk_size, text_chars.len());
             let chunk: String = text_chars[start..end].iter().collect();
             chunks.push(chunk);
-            
+
             if end == text_chars.len() {
                 break;
             }
@@ -143,11 +151,11 @@ impl RagManager {
         let dot_product: f32 = v1.iter().zip(v2.iter()).map(|(a, b)| a * b).sum();
         let norm_v1: f32 = v1.iter().map(|a| a * a).sum::<f32>().sqrt();
         let norm_v2: f32 = v2.iter().map(|a| a * a).sum::<f32>().sqrt();
-        
+
         if norm_v1 == 0.0 || norm_v2 == 0.0 {
             return 0.0;
         }
-        
+
         dot_product / (norm_v1 * norm_v2)
     }
 }
@@ -173,13 +181,18 @@ mod tests {
         let rag = RagManager::new(pool)?;
 
         // Ingest a test document (user_id = 1 for test)
-        let content = "ClavaMea is a private AI assistant. The secret passphrase is: PIZZA_WITH_PINEAPPLE.";
-        rag.ingest_document(1, "test.md", "test.md", content).await?;
+        let content =
+            "ClavaMea is a private AI assistant. The secret passphrase is: PIZZA_WITH_PINEAPPLE.";
+        rag.ingest_document(1, "test.md", "test.md", content)
+            .await?;
 
         // Search for the passphrase
         let results = rag.search(1, "secret passphrase", 1).await?;
         assert!(!results.is_empty(), "Should return at least one result");
-        assert!(results[0].contains("PIZZA_WITH_PINEAPPLE"), "Result should contain the passphrase");
+        assert!(
+            results[0].contains("PIZZA_WITH_PINEAPPLE"),
+            "Result should contain the passphrase"
+        );
 
         // Search for something else
         let results = rag.search(1, "Who is ClavaMea?", 1).await?;
@@ -189,4 +202,3 @@ mod tests {
         Ok(())
     }
 }
-

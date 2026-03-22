@@ -4,7 +4,10 @@ use teloxide::prelude::*;
 use teloxide::types::{Message as TgMessage, ParseMode};
 
 use crate::bot::state::AppState;
-use crate::core::{ConversationMemory, Message as MemoryMessage, LLMResponse, Tool, get_available_tools, Renderer, TelegramMarkdownV2Renderer as TelegramRenderer};
+use crate::core::{
+    ConversationMemory, LLMResponse, Message as MemoryMessage, Renderer,
+    TelegramMarkdownV2Renderer as TelegramRenderer, Tool, get_available_tools,
+};
 use crate::db::models::{Interaction, NewInteraction, User};
 
 /// Current bot version. Bump this string whenever new tools or features are deployed.
@@ -49,31 +52,40 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
     let username = msg.from.as_ref().and_then(|u| u.username.as_deref());
 
     // Check if user is authorized in the database
-    let user_record: Option<User> = crate::db::queries::get_user(&state.db_pool, user_id).await.unwrap_or(None);
-    
+    let user_record: Option<User> = crate::db::queries::get_user(&state.db_pool, user_id)
+        .await
+        .unwrap_or(None);
+
     let is_authorized = match user_record {
         Some(ref u) => u.authorized,
         None => {
             // Register new user as pending
-            let _ = crate::db::queries::create_user_pending(&state.db_pool, user_id, username).await;
-            
+            let _ =
+                crate::db::queries::create_user_pending(&state.db_pool, user_id, username).await;
+
             // Notify the owner about the new pending user
             let owner_chat_id = teloxide::types::ChatId(state.owner_id);
             let admin_msg = format!(
                 "🔔 **Novo usuário pendente!**\n\nID: `{}`\nNome: {}\n\nUse `/approve {} <papel> <nome>` para liberar.",
-                user_id, 
+                user_id,
                 username.unwrap_or("não informado"),
                 user_id
             );
             let renderer = TelegramRenderer::new();
             let rendered_admin = renderer.render(&admin_msg);
-            let _ = bot.send_message(owner_chat_id, rendered_admin).parse_mode(ParseMode::MarkdownV2).await;
+            let _ = bot
+                .send_message(owner_chat_id, rendered_admin)
+                .parse_mode(ParseMode::MarkdownV2)
+                .await;
 
             false
         }
     };
 
-    let is_admin = user_record.as_ref().map(|u: &User| u.is_admin()).unwrap_or(false);
+    let is_admin = user_record
+        .as_ref()
+        .map(|u: &User| u.is_admin())
+        .unwrap_or(false);
 
     // Guard: Only authorized users can proceed, unless it's a special admin command from an admin
     if !is_authorized && !is_admin {
@@ -89,7 +101,9 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
             bot.send_message(msg.chat.id, rendered_changelog)
                 .parse_mode(ParseMode::MarkdownV2)
                 .await?;
-            let _ = crate::db::queries::update_user_seen_version(&state.db_pool, user_id, BOT_VERSION).await;
+            let _ =
+                crate::db::queries::update_user_seen_version(&state.db_pool, user_id, BOT_VERSION)
+                    .await;
         }
     }
 
@@ -97,17 +111,26 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
     if is_admin {
         if let Some(text) = msg.text() {
             if text.starts_with("/users") {
-                let users: Vec<User> = crate::db::queries::list_users(&state.db_pool).await.unwrap_or_else(|_| Vec::new());
+                let users: Vec<User> = crate::db::queries::list_users(&state.db_pool)
+                    .await
+                    .unwrap_or_else(|_| Vec::new());
                 let mut response = "👥 **Lista de Usuários:**\n\n".to_string();
                 for u in users {
                     let status = if u.authorized { "✅" } else { "⏳" };
-                    let display_name = u.full_name.clone().unwrap_or_else(|| u.username.clone().unwrap_or_else(|| "Novo".to_string()));
-                    response.push_str(&format!("{} ID: `{}` | {} | {}\n", status, u.id, u.role, display_name));
+                    let display_name = u.full_name.clone().unwrap_or_else(|| {
+                        u.username.clone().unwrap_or_else(|| "Novo".to_string())
+                    });
+                    response.push_str(&format!(
+                        "{} ID: `{}` | {} | {}\n",
+                        status, u.id, u.role, display_name
+                    ));
                 }
 
                 let renderer = TelegramRenderer::new();
                 let rendered = renderer.render(&response);
-                bot.send_message(msg.chat.id, rendered).parse_mode(ParseMode::MarkdownV2).await?;
+                bot.send_message(msg.chat.id, rendered)
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .await?;
                 return Ok(());
             } else if text.starts_with("/auth") || text.starts_with("/approve") {
                 let parts: Vec<&str> = text.split_whitespace().collect();
@@ -116,45 +139,73 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
                         // Syntax: /approve <id> [role] [name...]
                         let mut role = "friend".to_string();
                         let mut name_start_idx = 2;
-                        
+
                         if parts.len() > 2 {
                             let possible_role = parts[2].to_lowercase();
-                            if ["owner", "admin", "family", "friend", "subscriber"].contains(&possible_role.as_str()) {
+                            if ["owner", "admin", "family", "friend", "subscriber"]
+                                .contains(&possible_role.as_str())
+                            {
                                 role = possible_role;
                                 name_start_idx = 3;
                             }
                         }
-                        
+
                         let full_name = if parts.len() > name_start_idx {
                             Some(parts[name_start_idx..].join(" "))
                         } else {
                             None
                         };
 
-                        let _ = crate::db::queries::authorize_user_with_name(&state.db_pool, target_id, &role, full_name.as_deref()).await;
-                        
+                        let _ = crate::db::queries::authorize_user_with_name(
+                            &state.db_pool,
+                            target_id,
+                            &role,
+                            full_name.as_deref(),
+                        )
+                        .await;
+
                         // Ensure user directory exists
                         let _ = state.engine.storage.ensure_user_files(target_id);
 
                         // Notify the admin
-                        let name_display = full_name.clone().unwrap_or_else(|| "ID ".to_string() + &target_id.to_string());
-                        bot.send_message(msg.chat.id, format!("✅ Usuário `{}` autorizado como `{}`.", name_display, role)).await?;
-                        
+                        let name_display = full_name
+                            .clone()
+                            .unwrap_or_else(|| "ID ".to_string() + &target_id.to_string());
+                        bot.send_message(
+                            msg.chat.id,
+                            format!("✅ Usuário `{}` autorizado como `{}`.", name_display, role),
+                        )
+                        .await?;
+
                         // Notify the target user
-                        let welcome_msg = format!("🎉 **Acesso Liberado!**\n\nOlá! Sua solicitação de acesso ao ClavaMea foi aprovada como `{}`. Agora você pode interagir comigo e usar minhas ferramentas.", role);
+                        let welcome_msg = format!(
+                            "🎉 **Acesso Liberado!**\n\nOlá! Sua solicitação de acesso ao ClavaMea foi aprovada como `{}`. Agora você pode interagir comigo e usar minhas ferramentas.",
+                            role
+                        );
                         let renderer = TelegramRenderer::new();
                         let rendered_welcome = renderer.render(&welcome_msg);
-                        let _ = bot.send_message(teloxide::types::ChatId(target_id), rendered_welcome).parse_mode(ParseMode::MarkdownV2).await;
+                        let _ = bot
+                            .send_message(teloxide::types::ChatId(target_id), rendered_welcome)
+                            .parse_mode(ParseMode::MarkdownV2)
+                            .await;
 
                         return Ok(());
                     }
                 }
-            } else if text.starts_with("/deauth") || text.starts_with("/deny") || text.starts_with("/reject") {
+            } else if text.starts_with("/deauth")
+                || text.starts_with("/deny")
+                || text.starts_with("/reject")
+            {
                 let parts: Vec<&str> = text.split_whitespace().collect();
                 if parts.len() >= 2 {
                     if let Ok(target_id) = parts[1].parse::<i64>() {
-                        let _ = crate::db::queries::deauthorize_user(&state.db_pool, target_id).await;
-                        bot.send_message(msg.chat.id, format!("❌ Autorização removida para `{}`.", target_id)).await?;
+                        let _ =
+                            crate::db::queries::deauthorize_user(&state.db_pool, target_id).await;
+                        bot.send_message(
+                            msg.chat.id,
+                            format!("❌ Autorização removida para `{}`.", target_id),
+                        )
+                        .await?;
                         return Ok(());
                     }
                 }
@@ -172,7 +223,9 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
 
         // Insert user interaction into DB
         let user_interaction = NewInteraction::user(chat_id, text.to_string(), lang);
-        if let Err(e) = crate::db::queries::insert_interaction(&state.db_pool, &user_interaction).await {
+        if let Err(e) =
+            crate::db::queries::insert_interaction(&state.db_pool, &user_interaction).await
+        {
             tracing::error!("Failed to save user interaction: {}", e);
         }
 
@@ -182,8 +235,15 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
             .await;
 
         // Initialize memory for this conversation
-        let history = crate::db::queries::get_recent_interactions(&state.db_pool, chat_id, state.max_conversation_length as u32).await.unwrap_or_else(|_| Vec::new());
-        let mut memory = ConversationMemory::from_interactions(history, state.max_conversation_length);
+        let history = crate::db::queries::get_recent_interactions(
+            &state.db_pool,
+            chat_id,
+            state.max_conversation_length as u32,
+        )
+        .await
+        .unwrap_or_else(|_| Vec::new());
+        let mut memory =
+            ConversationMemory::from_interactions(history, state.max_conversation_length);
         memory.add_message(MemoryMessage::user(text.to_string()));
 
         // Available tools for Phase 3 (WebSearch + FileReader + Memory + RAG)
@@ -193,39 +253,51 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
 
         loop {
             if turn >= max_turns {
-                bot.send_message(msg.chat.id, "I reached my maximum thinking limit for this turn.").await?;
+                bot.send_message(
+                    msg.chat.id,
+                    "I reached my maximum thinking limit for this turn.",
+                )
+                .await?;
                 break;
             }
 
             match state.engine.generate(user_id, &memory, &tools, lang).await {
                 Ok(LLMResponse::Text(content)) => {
                     // Final text response
-                    let assistant_interaction = NewInteraction::assistant(chat_id, content.clone(), lang);
-                    if let Err(e) = crate::db::queries::insert_interaction(&state.db_pool, &assistant_interaction).await {
+                    let assistant_interaction =
+                        NewInteraction::assistant(chat_id, content.clone(), lang);
+                    if let Err(e) = crate::db::queries::insert_interaction(
+                        &state.db_pool,
+                        &assistant_interaction,
+                    )
+                    .await
+                    {
                         tracing::error!("Failed to save assistant interaction: {}", e);
                     }
-                    
+
                     // Render Markdown to Telegram HTML
                     let rendered_content = renderer.render(&content);
-                    bot.send_message(msg.chat.id, rendered_content)
-                        .parse_mode(ParseMode::MarkdownV2)
-                        .await?;
+                    crate::bot::utils::send_chunked_message(&bot, msg.chat.id, &rendered_content).await?;
                     break;
                 }
                 Ok(LLMResponse::ToolCalls(tool_calls)) => {
                     // LLM requested tool execution
                     memory.add_message(MemoryMessage::tool_calls(tool_calls.clone()));
-                    
+
                     for tool_call in tool_calls {
                         let tool_name = tool_call.function.name.as_str();
-                        let args: serde_json::Value = match serde_json::from_str(&tool_call.function.arguments) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                memory.add_message(MemoryMessage::tool_result(tool_call.id.clone(), format!("Invalid arguments: {}", e)));
-                                continue;
-                            }
-                        };
-                        
+                        let args: serde_json::Value =
+                            match serde_json::from_str(&tool_call.function.arguments) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    memory.add_message(MemoryMessage::tool_result(
+                                        tool_call.id.clone(),
+                                        format!("Invalid arguments: {}", e),
+                                    ));
+                                    continue;
+                                }
+                            };
+
                         tracing::info!("LLM requested tool: {}", tool_name);
 
                         let tool_option = match tool_name {
@@ -248,32 +320,48 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
                         };
 
                         if let Some(tool) = tool_option {
-                            match tool.execute(
-                                user_id,
-                                &args, 
-                                state.engine.storage.clone(), 
-                                state.rag.clone(), 
-                                state.wasm.clone(),
-                                state.engine.allowed_paths.clone(),
-                                &state.db_pool,
-                            ).await {
+                            match tool
+                                .execute(
+                                    user_id,
+                                    &args,
+                                    state.engine.storage.clone(),
+                                    state.rag.clone(),
+                                    state.wasm.clone(),
+                                    state.engine.allowed_paths.clone(),
+                                    &state.db_pool,
+                                )
+                                .await
+                            {
                                 Ok(result) => {
-                                    memory.add_message(MemoryMessage::tool_result(tool_call.id.clone(), result));
+                                    memory.add_message(MemoryMessage::tool_result(
+                                        tool_call.id.clone(),
+                                        result,
+                                    ));
                                 }
                                 Err(e) => {
                                     tracing::error!("Tool execution error: {}", e);
-                                    memory.add_message(MemoryMessage::tool_result(tool_call.id.clone(), format!("Error: {}", e)));
+                                    memory.add_message(MemoryMessage::tool_result(
+                                        tool_call.id.clone(),
+                                        format!("Error: {}", e),
+                                    ));
                                 }
                             }
                         } else {
-                            memory.add_message(MemoryMessage::tool_result(tool_call.id.clone(), format!("Unknown tool: {}", tool_name)));
+                            memory.add_message(MemoryMessage::tool_result(
+                                tool_call.id.clone(),
+                                format!("Unknown tool: {}", tool_name),
+                            ));
                         }
                     }
                     turn += 1;
                 }
                 Err(e) => {
                     tracing::error!("Engine error: {}", e);
-                    bot.send_message(msg.chat.id, "Sorry, I ran into an error generating a response.").await?;
+                    bot.send_message(
+                        msg.chat.id,
+                        "Sorry, I ran into an error generating a response.",
+                    )
+                    .await?;
                     break;
                 }
             }
@@ -297,7 +385,8 @@ pub async fn handle_start(bot: Bot, msg: TgMessage, state: AppState) -> Response
 /// Handle /help command.
 pub async fn handle_help(bot: Bot, msg: TgMessage, _state: AppState) -> ResponseResult<()> {
     // Everyone can use /help
-    let help_text = "ClavaMea - I can search the web, read files, and remember things. Just talk to me!";
+    let help_text =
+        "ClavaMea - I can search the web, read files, and remember things. Just talk to me!";
     bot.send_message(msg.chat.id, help_text)
         .parse_mode(ParseMode::MarkdownV2)
         .await?;

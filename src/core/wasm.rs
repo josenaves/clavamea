@@ -4,8 +4,8 @@
 
 use anyhow::{Context, Result};
 use wasmtime::*;
-use wasmtime_wasi::{WasiCtxBuilder, pipe::MemoryOutputPipe};
 use wasmtime_wasi::preview1::{WasiP1Ctx, add_to_linker_sync};
+use wasmtime_wasi::{WasiCtxBuilder, pipe::MemoryOutputPipe};
 
 /// Represents the state for a single Wasm execution.
 struct WasmState {
@@ -23,17 +23,15 @@ impl WasmRuntime {
         let mut config = Config::new();
         config.wasm_component_model(true);
         config.async_support(false);
-        
-        let engine = Engine::new(&config)
-            .context("Failed to create Wasmtime engine")?;
-        
+
+        let engine = Engine::new(&config).context("Failed to create Wasmtime engine")?;
+
         Ok(Self { engine })
     }
 
     /// Execute WebAssembly Text (WAT) code and return its stdout.
     pub fn execute_wat(&self, wat: &str) -> Result<String> {
-        let wasm = wat::parse_str(wat)
-            .map_err(|e| anyhow::anyhow!("WAT parsing error: {}", e))?;
+        let wasm = wat::parse_str(wat).map_err(|e| anyhow::anyhow!("WAT parsing error: {}", e))?;
         self.execute_wasm(&wasm)
     }
 
@@ -51,33 +49,39 @@ impl WasmRuntime {
             .build_p1();
 
         let mut store = Store::new(&self.engine, WasmState { wasi });
-        
+
         let module = Module::new(&self.engine, wasm_bytes)
             .map_err(|e| anyhow::anyhow!("Wasm compilation error: {}", e))?;
 
-        let instance = linker.instantiate(&mut store, &module)
+        let instance = linker
+            .instantiate(&mut store, &module)
             .context("Failed to instantiate Wasm module")?;
 
         // Try to find the start function (WASI usually uses _start)
-        let exports: Vec<String> = instance.exports(&mut store).map(|e| e.name().to_string()).collect();
+        let exports: Vec<String> = instance
+            .exports(&mut store)
+            .map(|e| e.name().to_string())
+            .collect();
         tracing::debug!("Module exports: {:?}", exports);
 
-        let start = instance.get_func(&mut store, "_start")
+        let start = instance
+            .get_func(&mut store, "_start")
             .or_else(|| instance.get_func(&mut store, "main"))
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "No entry point found (_start or main). Available exports: {:?}", 
+                    "No entry point found (_start or main). Available exports: {:?}",
                     exports
                 )
             })?;
 
-        start.call(&mut store, &[], &mut [])
+        start
+            .call(&mut store, &[], &mut [])
             .context("Wasm execution failed")?;
 
         // Retrieve captured stdout
         let output_bytes = stdout.contents();
         let output = String::from_utf8_lossy(&output_bytes).to_string();
-        
+
         Ok(output)
     }
 }
