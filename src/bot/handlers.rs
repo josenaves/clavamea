@@ -277,7 +277,8 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
 
                     // Render Markdown to Telegram HTML
                     let rendered_content = renderer.render(&content);
-                    crate::bot::utils::send_chunked_message(&bot, msg.chat.id, &rendered_content).await?;
+                    crate::bot::utils::send_chunked_message(&bot, msg.chat.id, &rendered_content)
+                        .await?;
                     break;
                 }
                 Ok(LLMResponse::ToolCalls(tool_calls)) => {

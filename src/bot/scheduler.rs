@@ -89,7 +89,12 @@ async fn execute_bovespa_clipping(state: AppState, user_id: i64) -> anyhow::Resu
             let renderer = crate::core::renderer::TelegramRenderer::new();
             let rendered = renderer.render(&text);
 
-            crate::bot::utils::send_chunked_message(&state.bot, teloxide::types::ChatId(user_id), &rendered).await?;
+            crate::bot::utils::send_chunked_message(
+                &state.bot,
+                teloxide::types::ChatId(user_id),
+                &rendered,
+            )
+            .await?;
         }
         _ => {
             error!("LLM returned tool calls for a scheduled background task. Skipping.");
