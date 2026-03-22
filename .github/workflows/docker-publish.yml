@@ -44,15 +44,15 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Para tags semânticas (v1.2.3)
-            type=match,pattern=v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+),group=${{github.ref_name}}
-            type=match,pattern=v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+),group=${{github.ref_name}},value=v{{major}}.{{minor}}
-            type=match,pattern=v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+),group=${{github.ref_name}},value=v{{major}}
+            # Para tags semânticas (v1.2.3) - apenas quando push é uma tag
+            type=match,pattern=v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+),group=${{github.ref_name}},enable=${{ starts_with(github.ref, 'refs/tags/v') }}
+            type=match,pattern=v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+),group=${{github.ref_name}},value=v{{major}}.{{minor}},enable=${{ starts_with(github.ref, 'refs/tags/v') }}
+            type=match,pattern=v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+),group=${{github.ref_name}},value=v{{major}},enable=${{ starts_with(github.ref, 'refs/tags/v') }}
             
             # Para branch main (usar commit SHA como tag)
             type=raw,value=sha-{{sha}},enable={{is_default_branch}}
             
-            # Tag latest apenas para releases
+            # Tag latest apenas para releases com tag
             type=raw,value=latest,enable={{is_default_branch && starts_with(github.ref, 'refs/tags/v')}}
 
       # Build and push Docker image with Buildx (don't push on PR)
