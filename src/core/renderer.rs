@@ -49,10 +49,10 @@ impl Renderer for TelegramRenderer {
                     TagEnd::CodeBlock => html_output.push_str("</pre>"),
                     TagEnd::Paragraph => html_output.push_str("\n\n"),
                     TagEnd::Heading { .. } => html_output.push_str("</b>\n\n"),
-                    TagEnd::Item => html_output.push_str("\n"),
-                    TagEnd::List(_) => html_output.push_str("\n"),
-                    TagEnd::Table => html_output.push_str("\n"),
-                    TagEnd::TableRow => html_output.push_str("\n"),
+                    TagEnd::Item => html_output.push('\n'),
+                    TagEnd::List(_) => html_output.push('\n'),
+                    TagEnd::Table => html_output.push('\n'),
+                    TagEnd::TableRow => html_output.push('\n'),
                     TagEnd::TableCell => html_output.push_str(" | "),
                     _ => (),
                 },
@@ -65,7 +65,7 @@ impl Renderer for TelegramRenderer {
                     html_output.push_str("</code>");
                 }
                 Event::SoftBreak => html_output.push('\n'),
-                Event::HardBreak => html_output.push_str("\n"),
+                Event::HardBreak => html_output.push('\n'),
                 _ => (),
             }
         }

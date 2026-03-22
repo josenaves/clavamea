@@ -339,6 +339,7 @@ impl Tool {
     }
 
     /// Execute the tool with the given arguments.
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &self,
         user_id: i64,
@@ -373,7 +374,7 @@ impl Tool {
                 match target {
                     "DAILY" => {
                         storage.append_daily_note(user_id, content)?;
-                        Ok(format!("Successfully saved to daily note."))
+                        Ok("Successfully saved to daily note.".to_string())
                     }
                     "MEMORY.md" | "USER.md" | "SOUL.md" => {
                         storage.update_file(user_id, target, content, true)?;
@@ -750,6 +751,7 @@ impl Tool {
 
     /// Validates a path against security constraints.
     /// Allows paths within the project or paths starting with AUTHORIZED PATHS (from env or chat).
+    #[allow(clippy::too_many_arguments)]
     async fn validate_path(
         &self,
         path_str: &str,

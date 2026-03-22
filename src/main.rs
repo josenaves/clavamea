@@ -3,6 +3,7 @@
 //! Entry point for the Telegram bot application.
 
 #![allow(dead_code)]
+#![allow(clippy::collapsible_if)]
 
 mod bot;
 mod core;
@@ -105,10 +106,10 @@ async fn main() -> Result<()> {
             .expect("Failed to initialize memory storage"),
     );
 
-    let engine = if llm_api_url.is_some() && llm_api_key.is_some() {
+    let engine = if let (Some(api_url), Some(api_key)) = (llm_api_url, llm_api_key) {
         let config = EngineConfig {
-            api_url: llm_api_url.unwrap(),
-            api_key: llm_api_key.unwrap(),
+            api_url,
+            api_key,
             model: llm_model,
             max_tokens: llm_max_tokens,
             temperature: llm_temperature,
