@@ -82,10 +82,12 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
         }
     };
 
-    let is_admin = user_record
-        .as_ref()
-        .map(|u: &User| u.is_admin())
-        .unwrap_or(false);
+    let is_owner = user_id == state.owner_id;
+    let is_admin = is_owner
+        || user_record
+            .as_ref()
+            .map(|u: &User| u.is_admin())
+            .unwrap_or(false);
 
     // Guard: Only authorized users can proceed, unless it's a special admin command from an admin
     if !is_authorized && !is_admin {
