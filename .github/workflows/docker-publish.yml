@@ -44,16 +44,17 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Para tags semânticas (v1.2.3)
+            # Tags semânticas (v1.2.3, v1.2, v1)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             
             # Para branch main (usar commit SHA como tag)
-            type=raw,value=sha-{{sha}},enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha
             
-            # Tag latest apenas para releases
-            type=raw,value=latest,enable={{is_default_branch && github.ref_type == 'tag'}}
+            # Tag latest apenas para branch default
+            type=raw,value=latest,enable={{is_default_branch}}
 
       # Build and push Docker image with Buildx (don't push on PR)
       - name: Build and push Docker image
