@@ -1,5 +1,5 @@
 # Build Stage
-FROM rust:1.80-bookworm AS builder
+FROM rust:1.85-bookworm AS builder
 
 WORKDIR /usr/src/clavamea
 
