@@ -1,0 +1,34 @@
+[config]
+default_to_workspace = false
+
+[tasks.ci]
+description = "Runs the entire CI validation process locally."
+dependencies = ["fmt-check", "clippy-check", "build-debug", "test-project"]
+script = [
+    "echo \"✅ All CI checks passed perfectly!\""
+]
+
+[tasks.fmt-check]
+description = "Checks code formatting."
+command = "cargo"
+args = ["fmt", "--", "--check"]
+
+[tasks.clippy-check]
+description = "Runs clippy securely denying any warnings."
+command = "cargo"
+args = ["clippy", "--", "-D", "warnings"]
+
+[tasks.build-debug]
+description = "Builds the project to ensure completely successful compilation."
+command = "cargo"
+args = ["build"]
+
+[tasks.test-project]
+description = "Runs all unit and integration tests."
+command = "cargo"
+args = ["test"]
+
+[tasks.prepare]
+description = "Cache SQLx queries to allow offline compilation."
+command = "cargo"
+args = ["sqlx", "prepare"]
