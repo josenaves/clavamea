@@ -51,6 +51,19 @@ async fn process_due_tasks(state: &AppState, time_str: &str, weekday: &str) -> a
                     }
                 });
             }
+            "reminder" => {
+                let state_clone = state.clone();
+                let user_id = task.user_id;
+                let payload = task.payload.clone();
+                let schedule_id = task.id;
+                let is_one_time = task.cron_expr.contains('-');
+
+                tokio::spawn(async move {
+                    if let Err(e) = execute_reminder(state_clone, user_id, payload, schedule_id, is_one_time).await {
+                        error!("Reminder failed for user {}: {}", user_id, e);
+                    }
+                });
+            }
             _ => {
                 error!("Unknown task type: {}", task.task_type);
             }
@@ -98,6 +111,38 @@ async fn execute_bovespa_clipping(state: AppState, user_id: i64) -> anyhow::Resu
         }
         _ => {
             error!("LLM returned tool calls for a scheduled background task. Skipping.");
+        }
+    }
+
+    Ok(())
+}
+
+async fn execute_reminder(
+    state: AppState,
+    user_id: i64,
+    payload: Option<String>,
+    schedule_id: i64,
+    is_one_time: bool,
+) -> anyhow::Result<()> {
+    info!("Sending reminder to user {}", user_id);
+
+    let message = payload.unwrap_or_else(|| "Você tem um lembrete agendado para agora.".to_string());
+    
+    // We can assume the text might have markdown or we just render it.
+    let renderer = crate::core::renderer::TelegramRenderer::new();
+    let rendered = renderer.render(&message);
+
+    crate::bot::utils::send_chunked_message(
+        &state.bot,
+        teloxide::types::ChatId(user_id),
+        &rendered,
+    )
+    .await?;
+
+    if is_one_time {
+        info!("Deleting one-time reminder task: {}", schedule_id);
+        if let Err(e) = crate::db::queries::delete_schedule(&state.db_pool, schedule_id).await {
+            error!("Failed to delete one-time reminder {}: {}", schedule_id, e);
         }
     }
 

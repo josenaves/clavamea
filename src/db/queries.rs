@@ -314,8 +314,6 @@ pub async fn get_due_schedules(
     time_str: &str,
     weekday: &str,
 ) -> Result<Vec<crate::db::models::Schedule>> {
-    // Current simple logic: Match time (HH:MM) and weekday (if present).
-    // The cron_expr can be "HH:MM" or "HH:MM MON-FRI" or "HH:MM MON,WED,FRI"
     let all_schedules = sqlx::query_as::<_, crate::db::models::Schedule>("SELECT * FROM schedules")
         .fetch_all(pool)
         .await?;
@@ -329,6 +327,19 @@ pub async fn get_due_schedules(
             continue;
         }
 
+        // Logic branching: if parts[0] is a date (YYYY-MM-DD), it's a one-time event
+        if parts[0].len() == 10 && parts[0].contains('-') {
+            if parts.len() < 2 { continue; } // malformed
+            let target_date = parts[0];
+            let target_time = parts[1];
+            
+            if target_date == today && target_time == time_str {
+                due.push(s);
+            }
+            continue;
+        }
+
+        // Otherwise, it's a recurring event starting with HH:MM
         let target_time = parts[0];
         if target_time != time_str {
             continue;
@@ -368,4 +379,92 @@ pub async fn update_schedule_last_run(pool: &Pool, schedule_id: i64) -> Result<(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+/// Delete a schedule.
+pub async fn delete_schedule(pool: &Pool, schedule_id: i64) -> Result<()> {
+    sqlx::query("DELETE FROM schedules WHERE id = ?")
+        .bind(schedule_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Insert a new schedule task.
+pub async fn insert_schedule(
+    pool: &Pool,
+    user_id: i64,
+    cron_expr: &str,
+    task_type: &str,
+    payload: Option<&str>,
+) -> Result<i64> {
+    let result = sqlx::query(
+        "INSERT INTO schedules (user_id, cron_expr, task_type, payload) VALUES (?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(cron_expr)
+    .bind(task_type)
+    .bind(payload)
+    .execute(pool)
+    .await?;
+
+    Ok(result.last_insert_rowid())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    #[tokio::test]
+    async fn test_schedule_logic() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        
+        sqlx::query("
+            CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, role TEXT, authorized INTEGER, full_name TEXT, last_seen_version TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                cron_expr TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                payload TEXT,
+                last_run TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+        ")
+        .execute(&pool).await.unwrap();
+
+        sqlx::query("INSERT INTO users (id, role, authorized) VALUES (1, 'owner', 1);")
+            .execute(&pool).await.unwrap();
+
+        // 1. Recurring
+        insert_schedule(&pool, 1, "08:00 MON-FRI", "reminder", Some("daily")).await.unwrap();
+        // 2. One-time for today
+        let today_date = Utc::now().format("%Y-%m-%d").to_string();
+        let one_time_expr = format!("{} 10:00", today_date);
+        insert_schedule(&pool, 1, &one_time_expr, "reminder", Some("one-time")).await.unwrap();
+
+        // 3. One-time for tomorrow
+        let tomorrow_expr = "2099-01-01 10:00";
+        insert_schedule(&pool, 1, tomorrow_expr, "reminder", Some("future")).await.unwrap();
+
+        // Test 1: recurring
+        let due_recurring = get_due_schedules(&pool, "08:00", "WED").await.unwrap();
+        assert_eq!(due_recurring.len(), 1);
+        assert_eq!(due_recurring[0].payload.as_deref(), Some("daily"));
+
+        // Test 2: recurring wrong day
+        let not_due = get_due_schedules(&pool, "08:00", "SAT").await.unwrap();
+        assert_eq!(not_due.len(), 0);
+
+        // Test 3: one-time today at 10:00
+        let due_onetime = get_due_schedules(&pool, "10:00", "WED").await.unwrap(); 
+        assert_eq!(due_onetime.len(), 1);
+        assert_eq!(due_onetime[0].payload.as_deref(), Some("one-time"));
+
+        // Test 4: one-time today at wrong time
+        let not_due_onetime = get_due_schedules(&pool, "11:00", "WED").await.unwrap();
+        assert_eq!(not_due_onetime.len(), 0);
+    }
 }

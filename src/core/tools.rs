@@ -25,6 +25,7 @@ pub enum Tool {
     LogExpense,
     GetVehicleReport,
     GeneticsCalculate,
+    ScheduleReminder,
     // Future tools will be added here
 }
 
@@ -298,6 +299,27 @@ impl Tool {
                             "period": { "type": "string", "enum": ["all", "month", "year"], "description": "Report period" }
                         },
                         "required": ["vehicle_id"]
+                    }
+                }
+            }),
+            Tool::ScheduleReminder => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "schedule_reminder",
+                    "description": "Schedules a proactive message/reminder to be sent to the user at a specific future date and time.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "datetime": {
+                                "type": "string",
+                                "description": "The exact date and time to send the message in 'YYYY-MM-DD HH:MM' format (e.g., '2026-03-22 10:00'), OR a recurring time 'HH:MM MON-FRI'."
+                            },
+                            "message": {
+                                "type": "string",
+                                "description": "The text message to send to the user."
+                            }
+                        },
+                        "required": ["datetime", "message"]
                     }
                 }
             }),
@@ -658,6 +680,25 @@ impl Tool {
                     )),
                 }
             }
+            Tool::ScheduleReminder => {
+                let datetime = args["datetime"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'datetime' argument"))?;
+                let message = args["message"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'message' argument"))?;
+
+                let id = crate::db::queries::insert_schedule(
+                    db_pool,
+                    user_id,
+                    datetime,
+                    "reminder",
+                    Some(message),
+                )
+                .await?;
+
+                Ok(format!("Reminder successfully scheduled (ID: {}).", id))
+            }
         }
     }
 
@@ -876,6 +917,7 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
             Tool::LogExpense,
             Tool::GetVehicleReport,
             Tool::GeneticsCalculate,
+            Tool::ScheduleReminder,
         ],
         _ => vec![],
     }
