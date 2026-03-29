@@ -329,10 +329,12 @@ pub async fn get_due_schedules(
 
         // Logic branching: if parts[0] is a date (YYYY-MM-DD), it's a one-time event
         if parts[0].len() == 10 && parts[0].contains('-') {
-            if parts.len() < 2 { continue; } // malformed
+            if parts.len() < 2 {
+                continue;
+            } // malformed
             let target_date = parts[0];
             let target_time = parts[1];
-            
+
             if target_date == today && target_time == time_str {
                 due.push(s);
             }
@@ -419,7 +421,7 @@ mod tests {
     #[tokio::test]
     async fn test_schedule_logic() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        
+
         sqlx::query("
             CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, role TEXT, authorized INTEGER, full_name TEXT, last_seen_version TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
             CREATE TABLE schedules (
@@ -436,18 +438,26 @@ mod tests {
         .execute(&pool).await.unwrap();
 
         sqlx::query("INSERT INTO users (id, role, authorized) VALUES (1, 'owner', 1);")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
 
         // 1. Recurring
-        insert_schedule(&pool, 1, "08:00 MON-FRI", "reminder", Some("daily")).await.unwrap();
+        insert_schedule(&pool, 1, "08:00 MON-FRI", "reminder", Some("daily"))
+            .await
+            .unwrap();
         // 2. One-time for today
         let today_date = Utc::now().format("%Y-%m-%d").to_string();
         let one_time_expr = format!("{} 10:00", today_date);
-        insert_schedule(&pool, 1, &one_time_expr, "reminder", Some("one-time")).await.unwrap();
+        insert_schedule(&pool, 1, &one_time_expr, "reminder", Some("one-time"))
+            .await
+            .unwrap();
 
         // 3. One-time for tomorrow
         let tomorrow_expr = "2099-01-01 10:00";
-        insert_schedule(&pool, 1, tomorrow_expr, "reminder", Some("future")).await.unwrap();
+        insert_schedule(&pool, 1, tomorrow_expr, "reminder", Some("future"))
+            .await
+            .unwrap();
 
         // Test 1: recurring
         let due_recurring = get_due_schedules(&pool, "08:00", "WED").await.unwrap();
@@ -459,7 +469,7 @@ mod tests {
         assert_eq!(not_due.len(), 0);
 
         // Test 3: one-time today at 10:00
-        let due_onetime = get_due_schedules(&pool, "10:00", "WED").await.unwrap(); 
+        let due_onetime = get_due_schedules(&pool, "10:00", "WED").await.unwrap();
         assert_eq!(due_onetime.len(), 1);
         assert_eq!(due_onetime[0].payload.as_deref(), Some("one-time"));
 

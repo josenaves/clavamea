@@ -59,7 +59,10 @@ async fn process_due_tasks(state: &AppState, time_str: &str, weekday: &str) -> a
                 let is_one_time = task.cron_expr.contains('-');
 
                 tokio::spawn(async move {
-                    if let Err(e) = execute_reminder(state_clone, user_id, payload, schedule_id, is_one_time).await {
+                    if let Err(e) =
+                        execute_reminder(state_clone, user_id, payload, schedule_id, is_one_time)
+                            .await
+                    {
                         error!("Reminder failed for user {}: {}", user_id, e);
                     }
                 });
@@ -126,8 +129,9 @@ async fn execute_reminder(
 ) -> anyhow::Result<()> {
     info!("Sending reminder to user {}", user_id);
 
-    let message = payload.unwrap_or_else(|| "Você tem um lembrete agendado para agora.".to_string());
-    
+    let message =
+        payload.unwrap_or_else(|| "Você tem um lembrete agendado para agora.".to_string());
+
     // We can assume the text might have markdown or we just render it.
     let renderer = crate::core::renderer::TelegramRenderer::new();
     let rendered = renderer.render(&message);
