@@ -1,7 +1,7 @@
 //! Database queries and CRUD operations.
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 
 use crate::db::connection::Pool;
 use crate::db::models::{ExpenseLog, FuelLog, Interaction, NewInteraction, User, Vehicle};
@@ -319,7 +319,8 @@ pub async fn get_due_schedules(
         .await?;
 
     let mut due = Vec::new();
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    // Use Local time so reminders match the user's timezone (not UTC)
+    let today = Local::now().format("%Y-%m-%d").to_string();
 
     for s in all_schedules {
         let parts: Vec<&str> = s.cron_expr.split_whitespace().collect();
@@ -418,12 +419,20 @@ mod tests {
     use super::*;
     use chrono::Utc;
 
-    #[tokio::test]
-    async fn test_schedule_logic() {
+    /// Helper: creates an in-memory DB with users + schedules tables.
+    async fn make_pool() -> Pool {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-
-        sqlx::query("
-            CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, role TEXT, authorized INTEGER, full_name TEXT, last_seen_version TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+        sqlx::query(
+            "
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY,
+                username TEXT,
+                role TEXT,
+                authorized INTEGER,
+                full_name TEXT,
+                last_seen_version TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE schedules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -434,47 +443,109 @@ mod tests {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
-        ")
-        .execute(&pool).await.unwrap();
-
+        ",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query("INSERT INTO users (id, role, authorized) VALUES (1, 'owner', 1);")
             .execute(&pool)
             .await
             .unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_schedule_logic() {
+        let pool = make_pool().await;
 
         // 1. Recurring
         insert_schedule(&pool, 1, "08:00 MON-FRI", "reminder", Some("daily"))
             .await
             .unwrap();
-        // 2. One-time for today
-        let today_date = Utc::now().format("%Y-%m-%d").to_string();
+        // 2. One-time for today — use Local::now() to match get_due_schedules behaviour
+        let today_date = Local::now().format("%Y-%m-%d").to_string();
         let one_time_expr = format!("{} 10:00", today_date);
         insert_schedule(&pool, 1, &one_time_expr, "reminder", Some("one-time"))
             .await
             .unwrap();
-
-        // 3. One-time for tomorrow
-        let tomorrow_expr = "2099-01-01 10:00";
-        insert_schedule(&pool, 1, tomorrow_expr, "reminder", Some("future"))
+        // 3. One-time for the distant future
+        insert_schedule(&pool, 1, "2099-01-01 10:00", "reminder", Some("future"))
             .await
             .unwrap();
 
-        // Test 1: recurring
-        let due_recurring = get_due_schedules(&pool, "08:00", "WED").await.unwrap();
-        assert_eq!(due_recurring.len(), 1);
-        assert_eq!(due_recurring[0].payload.as_deref(), Some("daily"));
+        // recurring fires on a weekday
+        let due = get_due_schedules(&pool, "08:00", "WED").await.unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].payload.as_deref(), Some("daily"));
 
-        // Test 2: recurring wrong day
+        // recurring does NOT fire on weekend
         let not_due = get_due_schedules(&pool, "08:00", "SAT").await.unwrap();
         assert_eq!(not_due.len(), 0);
 
-        // Test 3: one-time today at 10:00
+        // one-time fires today at 10:00
         let due_onetime = get_due_schedules(&pool, "10:00", "WED").await.unwrap();
         assert_eq!(due_onetime.len(), 1);
         assert_eq!(due_onetime[0].payload.as_deref(), Some("one-time"));
 
-        // Test 4: one-time today at wrong time
+        // one-time does NOT fire at wrong time
         let not_due_onetime = get_due_schedules(&pool, "11:00", "WED").await.unwrap();
         assert_eq!(not_due_onetime.len(), 0);
+    }
+
+    /// Regression: "08:00 MON-FRI" contains '-' but must NOT be treated as a one-time event.
+    /// Before the fix, `cron_expr.contains('-')` wrongly returned true, causing the recurring
+    /// reminder to be deleted after its first execution.
+    #[tokio::test]
+    async fn test_recurring_monfri_not_treated_as_onetime() {
+        let pool = make_pool().await;
+
+        insert_schedule(&pool, 1, "09:00 MON-FRI", "reminder", Some("standup"))
+            .await
+            .unwrap();
+
+        let due = get_due_schedules(&pool, "09:00", "MON").await.unwrap();
+        assert_eq!(due.len(), 1, "MON-FRI schedule should fire on Monday");
+
+        let expr = &due[0].cron_expr;
+        // Verify it does NOT look like a one-time expression (must not start with YYYY-MM-DD)
+        let first_part = expr.split_whitespace().next().unwrap_or("");
+        assert_ne!(
+            first_part.len(),
+            10,
+            "A recurring HH:MM expr must not be detected as a date"
+        );
+        assert!(
+            !first_part
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_digit() && first_part.len() == 10)
+                .unwrap_or(false),
+            "Recurring expression wrongly identified as one-time: {}",
+            expr
+        );
+    }
+
+    /// Regression: date matching must use Local time (not UTC) so reminders in non-UTC
+    /// timezones (e.g. UTC-3) are not silently skipped after 21:00 local time.
+    #[tokio::test]
+    async fn test_timezone_local_date_matching() {
+        let pool = make_pool().await;
+
+        // Schedule a one-time reminder for today according to LOCAL date
+        let local_today = Local::now().format("%Y-%m-%d").to_string();
+        let expr = format!("{} 23:59", local_today);
+        insert_schedule(&pool, 1, &expr, "reminder", Some("night-owl"))
+            .await
+            .unwrap();
+
+        // Must resolve as due on LOCAL today ("23:59") regardless of UTC offset
+        let due = get_due_schedules(&pool, "23:59", "MON").await.unwrap();
+        assert_eq!(
+            due.len(),
+            1,
+            "Reminder scheduled for local today's date should be found when matching with local date"
+        );
+        assert_eq!(due[0].payload.as_deref(), Some("night-owl"));
     }
 }

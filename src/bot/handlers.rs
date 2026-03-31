@@ -12,23 +12,28 @@ use crate::db::models::{Interaction, NewInteraction, User};
 
 /// Current bot version. Bump this string whenever new tools or features are deployed.
 /// Users will automatically receive a "What's New" notification on their next message.
-const BOT_VERSION: &str = "1.4.0";
+const BOT_VERSION: &str = "1.5.0";
 
 /// Changelog shown to users when the bot is updated.
 /// Update this text whenever BOT_VERSION changes.
-const CHANGELOG: &str = "🆕 **O ClavaMea foi atualizado!**
+const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
 
-**v1.4.0 — Gestão de Identidade**
-• Agora você pode definir nomes para os usuários!
-• Comando /users agora mostra o nome real de cada pessoa.
-• Novo formato: `/approve <id> <role> <nome...>`
+**v1\.5\.0 — Correção de Lembretes**
+• Corrigido: lembretes agendados para datas específicas não eram disparados após as 21h \(bug de fuso horário UTC vs\. local\)\.
+• Corrigido: lembretes recorrentes com padrão `MON\-FRI` eram deletados após a primeira execução\.
+• Agora os agendamentos funcionam de forma confiável em qualquer horário do dia\!
 
-**v1.3.0 — Agendamento de Tarefas (Bovespa)**
-• Receba o fechamento da Bolsa às 17:10 (SEG-SEX).
-• Skill de Cálculo de Genética (Hardy-Weinberg).
+**v1\.4\.0 — Gestão de Identidade**
+• Agora você pode definir nomes para os usuários\!
+• Comando /users agora mostra o nome real de cada pessoa\.
+• Novo formato: `/approve \<id\> \<role\> \<nome\.\.\.\>`
 
-**v1.2.0 — Sistema Multi-usuário**
-• Controle de acesso por roles e dados isolados.";
+**v1\.3\.0 — Agendamento de Tarefas \(Bovespa\)**
+• Receba o fechamento da Bolsa às 17:10 \(SEG\-SEX\)\.
+• Skill de Cálculo de Genética \(Hardy\-Weinberg\)\.
+
+**v1\.2\.0 — Sistema Multi\-usuário**
+• Controle de acesso por roles e dados isolados\."#;
 
 /// Handle incoming text messages.
 pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> ResponseResult<()> {

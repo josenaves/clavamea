@@ -56,7 +56,20 @@ async fn process_due_tasks(state: &AppState, time_str: &str, weekday: &str) -> a
                 let user_id = task.user_id;
                 let payload = task.payload.clone();
                 let schedule_id = task.id;
-                let is_one_time = task.cron_expr.contains('-');
+                // A one-time expression starts with a date: "YYYY-MM-DD HH:MM"
+                // Recurring expressions start with a time: "HH:MM" or "HH:MM MON-FRI"
+                let is_one_time = task
+                    .cron_expr
+                    .split_whitespace()
+                    .next()
+                    .map(|p| {
+                        p.len() == 10
+                            && p.chars()
+                                .next()
+                                .map(|c| c.is_ascii_digit())
+                                .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
 
                 tokio::spawn(async move {
                     if let Err(e) =
