@@ -360,6 +360,29 @@ impl Tool {
         }
     }
 
+    /// Parse a tool by its JSON definition name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "web_search" => Some(Tool::WebSearch),
+            "file_reader" => Some(Tool::FileReader),
+            "save_memory" => Some(Tool::SaveMemory),
+            "index_document" => Some(Tool::IndexDocument),
+            "search_knowledge" => Some(Tool::SearchKnowledge),
+            "execute_code" => Some(Tool::ExecuteCode),
+            "list_dir" => Some(Tool::ListDir),
+            "move_file" => Some(Tool::MoveFile),
+            "create_dir" => Some(Tool::CreateDir),
+            "authorize_path" => Some(Tool::AuthorizePath),
+            "add_vehicle" => Some(Tool::AddVehicle),
+            "log_fuel" => Some(Tool::LogFuel),
+            "log_expense" => Some(Tool::LogExpense),
+            "get_vehicle_report" => Some(Tool::GetVehicleReport),
+            "genetics_calculate" => Some(Tool::GeneticsCalculate),
+            "schedule_reminder" => Some(Tool::ScheduleReminder),
+            _ => None,
+        }
+    }
+
     /// Execute the tool with the given arguments.
     #[allow(clippy::too_many_arguments)]
     pub async fn execute(
@@ -920,5 +943,34 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
             Tool::ScheduleReminder,
         ],
         _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_all_tools_parsable_by_name() {
+        // Enumerate all active tool phases
+        for phase in 1..=3 {
+            for tool in get_available_tools(phase) {
+                // Ensure every tool defined actually has its parsed name mapped in `from_name`.
+                // This prevents bugs where the LLM is given the tool definition but the handler
+                // doesn't recognize the callback name.
+                let definition = tool.definition();
+                let name = definition["function"]["name"]
+                    .as_str()
+                    .expect("Tool definition must have a string name");
+
+                let parsed = Tool::from_name(name);
+                assert!(
+                    parsed.is_some(),
+                    "Tool '{}' relies on `Tool::from_name` but was not found in the match arm! \
+                     Add it to `from_name` in src/core/tools.rs to fix this.",
+                    name
+                );
+            }
+        }
     }
 }

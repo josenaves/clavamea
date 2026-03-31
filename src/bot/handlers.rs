@@ -308,24 +308,7 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
 
                         tracing::info!("LLM requested tool: {}", tool_name);
 
-                        let tool_option = match tool_name {
-                            "web_search" => Some(Tool::WebSearch),
-                            "file_reader" => Some(Tool::FileReader),
-                            "save_memory" => Some(Tool::SaveMemory),
-                            "index_document" => Some(Tool::IndexDocument),
-                            "search_knowledge" => Some(Tool::SearchKnowledge),
-                            "execute_code" => Some(Tool::ExecuteCode),
-                            "list_dir" => Some(Tool::ListDir),
-                            "move_file" => Some(Tool::MoveFile),
-                            "create_dir" => Some(Tool::CreateDir),
-                            "authorize_path" => Some(Tool::AuthorizePath),
-                            "add_vehicle" => Some(Tool::AddVehicle),
-                            "log_fuel" => Some(Tool::LogFuel),
-                            "log_expense" => Some(Tool::LogExpense),
-                            "get_vehicle_report" => Some(Tool::GetVehicleReport),
-                            "genetics_calculate" => Some(Tool::GeneticsCalculate),
-                            _ => None,
-                        };
+                        let tool_option = Tool::from_name(tool_name);
 
                         if let Some(tool) = tool_option {
                             match tool
