@@ -45,7 +45,16 @@ impl RagManager {
         // 3. Store document and chunks in the database
         let mut tx = self.db_pool.begin().await?;
 
-        // Insert doc with user_id using runtime query to avoid compile-time schema check
+        // 3.1 Clear any existing document with the same path for this user
+        // This avoids UNIQUE constraint violations and ensures clean re-ingestion.
+        // Chunks are deleted automatically due to ON DELETE CASCADE.
+        sqlx::query("DELETE FROM documents WHERE user_id = ? AND path = ?")
+            .bind(user_id)
+            .bind(path)
+            .execute(&mut *tx)
+            .await?;
+
+        // 3.2 Insert doc with user_id using runtime query to avoid compile-time schema check
         let doc_id: i64 = sqlx::query_scalar(
             "INSERT INTO documents (user_id, filename, path) VALUES (?, ?, ?) RETURNING id",
         )

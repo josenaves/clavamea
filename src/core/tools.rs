@@ -850,7 +850,7 @@ impl Tool {
 
         Ok(format!(
             "Recipe '{}' saved to {} and successfully indexed.",
-            name, sub_path
+            name, full_path_str
         ))
     }
 
@@ -871,8 +871,8 @@ impl Tool {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() && path.extension().is_some_and(|ext| ext == "md") {
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    recipes.push(name.to_string());
+                if let Some(p_str) = path.to_str() {
+                    recipes.push(p_str.to_string());
                 }
             }
         }
