@@ -33,7 +33,7 @@ The project follows these modules:
 
 1. Read the spec thoroughly before making changes.
 2. Update documentation when adding features.
-3. Test with both English and Portuguese locales.
+3. Local Validation: Run `cargo make ci` before pushing to verify fmt, clippy, and tests.
 4. Verify owner filtering works correctly.
 
 ## Environment Variables
