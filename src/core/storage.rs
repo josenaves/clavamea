@@ -31,7 +31,7 @@ impl MemoryStorage {
     }
 
     /// Get the base directory for a specific user.
-    fn user_dir(&self, user_id: i64) -> PathBuf {
+    pub fn user_dir(&self, user_id: i64) -> PathBuf {
         self.base_dir.join(user_id.to_string())
     }
 
@@ -40,6 +40,12 @@ impl MemoryStorage {
         let user_path = self.user_dir(user_id);
         if !user_path.exists() {
             fs::create_dir_all(&user_path)?;
+        }
+
+        // Ensure recipes directory exists
+        let recipes_path = user_path.join("recipes");
+        if !recipes_path.exists() {
+            fs::create_dir_all(&recipes_path)?;
         }
 
         let files = vec![

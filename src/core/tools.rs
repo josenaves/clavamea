@@ -3,6 +3,7 @@ use crate::db::connection::Pool;
 use crate::db::models::{Interaction, NewInteraction};
 use anyhow::{Result, anyhow};
 use serde_json::Value;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::core::rag::RagManager;
@@ -26,6 +27,9 @@ pub enum Tool {
     GetVehicleReport,
     GeneticsCalculate,
     ScheduleReminder,
+    FetchUrl,
+    SaveRecipe,
+    ListRecipes,
     // Future tools will be added here
 }
 
@@ -357,6 +361,55 @@ impl Tool {
                     }
                 }
             }),
+            Tool::FetchUrl => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "fetch_url",
+                    "description": "Fetches the raw text content of a web page for processing.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "description": "The URL of the web page to fetch."
+                            }
+                        },
+                        "required": ["url"]
+                    }
+                }
+            }),
+            Tool::SaveRecipe => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "save_recipe",
+                    "description": "Saves a cleaned and sanitized recipe to the user's recipe collection and indexes it.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "A descriptive name for the recipe (e.g., 'lasanha_de_berinjela')."
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "The cleaned recipe content in Markdown format."
+                            }
+                        },
+                        "required": ["name", "content"]
+                    }
+                }
+            }),
+            Tool::ListRecipes => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "list_recipes",
+                    "description": "Lists all recipes currently saved in the user's collection.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            }),
         }
     }
 
@@ -379,6 +432,9 @@ impl Tool {
             "get_vehicle_report" => Some(Tool::GetVehicleReport),
             "genetics_calculate" => Some(Tool::GeneticsCalculate),
             "schedule_reminder" => Some(Tool::ScheduleReminder),
+            "fetch_url" => Some(Tool::FetchUrl),
+            "save_recipe" => Some(Tool::SaveRecipe),
+            "list_recipes" => Some(Tool::ListRecipes),
             _ => None,
         }
     }
@@ -722,6 +778,112 @@ impl Tool {
 
                 Ok(format!("Reminder successfully scheduled (ID: {}).", id))
             }
+            Tool::FetchUrl => {
+                let url = args["url"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'url' argument"))?;
+                self.perform_fetch_url(url).await
+            }
+            Tool::SaveRecipe => {
+                let name = args["name"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'name' argument"))?;
+                let content = args["content"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'content' argument"))?;
+
+                self.perform_save_recipe(user_id, name, content, storage, rag)
+                    .await
+            }
+            Tool::ListRecipes => self.perform_list_recipes(user_id, storage).await,
+        }
+    }
+
+    /// Fetches the raw text content of a URL for processing.
+    async fn perform_fetch_url(&self, url: &str) -> Result<String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .user_agent("ClavaMea/1.5.1 (Private AI Assistant)")
+            .build()?;
+
+        let res = client.get(url).send().await?;
+
+        if !res.status().is_success() {
+            return Err(anyhow!("Failed to fetch URL {}: {}", url, res.status()));
+        }
+
+        let body_bytes = res.bytes().await?;
+
+        // Use html2text to get a cleaner version for the LLM
+        let text = html2text::from_read(&body_bytes[..], 80);
+
+        // Limit content to 50KB to prevent context overflow.
+        if text.len() > 50_000 {
+            Ok(format!("{}... [TRUNCATED]", &text[..50_000]))
+        } else {
+            Ok(text)
+        }
+    }
+
+    /// Saves a sanitized recipe to the user's collection and indexes it.
+    async fn perform_save_recipe(
+        &self,
+        user_id: i64,
+        name: &str,
+        content: &str,
+        storage: Arc<MemoryStorage>,
+        rag: Arc<RagManager>,
+    ) -> Result<String> {
+        let filename = format!("{}.md", name.to_lowercase().replace(' ', "_"));
+        let sub_path = format!("recipes/{}", filename);
+
+        // Save file
+        storage.update_file(user_id, &sub_path, content, false)?;
+
+        // Index for RAG
+        let user_dir = storage.user_dir(user_id);
+        let full_path = user_dir.join(&sub_path);
+        let full_path_str = full_path.to_string_lossy();
+
+        rag.ingest_document(user_id, &filename, &full_path_str, content)
+            .await?;
+
+        Ok(format!(
+            "Recipe '{}' saved to {} and successfully indexed.",
+            name, sub_path
+        ))
+    }
+
+    /// Lists all recipes currently saved for the user.
+    async fn perform_list_recipes(
+        &self,
+        user_id: i64,
+        storage: Arc<MemoryStorage>,
+    ) -> Result<String> {
+        let recipes_dir = storage.user_dir(user_id).join("recipes");
+
+        if !recipes_dir.exists() {
+            return Ok("No recipes folder found for this user.".to_string());
+        }
+
+        let mut recipes = Vec::new();
+        for entry in std::fs::read_dir(recipes_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |ext| ext == "md") {
+                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                    recipes.push(name.to_string());
+                }
+            }
+        }
+
+        if recipes.is_empty() {
+            Ok("You have no recipes saved yet.".to_string())
+        } else {
+            Ok(format!(
+                "You have the following recipes saved:\n- {}",
+                recipes.join("\n- ")
+            ))
         }
     }
 
@@ -941,6 +1103,9 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
             Tool::GetVehicleReport,
             Tool::GeneticsCalculate,
             Tool::ScheduleReminder,
+            Tool::FetchUrl,
+            Tool::SaveRecipe,
+            Tool::ListRecipes,
         ],
         _ => vec![],
     }

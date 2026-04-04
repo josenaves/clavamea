@@ -32,6 +32,7 @@ pulldown-cmark = "0.10"
 wasmtime = "29.0"
 wasmtime-wasi = "29.0"
 wat = "1.245"
+html2text = "0.6"
 
 
 

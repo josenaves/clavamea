@@ -12,11 +12,16 @@ use crate::db::models::{Interaction, NewInteraction, User};
 
 /// Current bot version. Bump this string whenever new tools or features are deployed.
 /// Users will automatically receive a "What's New" notification on their next message.
-const BOT_VERSION: &str = "1.5.0";
+const BOT_VERSION: &str = "1.5.1";
 
 /// Changelog shown to users when the bot is updated.
 /// Update this text whenever BOT_VERSION changes.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
+
+**v1\.5\.1 — Gestão de Receitas**
+• **Habilidade de Culinária\!** Importe receitas de links, arquivos ou texto\.
+• O ClavaMea agora limpa o conteúdo de sites, removendo anúncios e distrações para focar no que importa\.
+• Ferramentas: `fetch_url`, `save_recipe` e `list_recipes`\.
 
 **v1\.5\.0 — Correção de Lembretes**
 • Corrigido: lembretes agendados para datas específicas não eram disparados após as 21h \(bug de fuso horário UTC vs\. local\)\.
