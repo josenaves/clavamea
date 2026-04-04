@@ -462,7 +462,7 @@ impl Tool {
                 let path = args["path"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
-                self.perform_file_read(path, allowed_paths).await
+                self.perform_file_read(user_id, path, allowed_paths).await
             }
             Tool::SaveMemory => {
                 let target = args["target"]
@@ -488,7 +488,7 @@ impl Tool {
                 let path = args["path"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
-                let content_res = self.perform_file_read(path, allowed_paths).await?;
+                let content_res = self.perform_file_read(user_id, path, allowed_paths).await?;
                 // perform_file_read returns a formatted string with markdown code blocks, extract the content
                 let content = content_res
                     .split("```\n")
@@ -543,7 +543,7 @@ impl Tool {
                 let path = args["path"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
-                self.perform_list_dir(path, allowed_paths).await
+                self.perform_list_dir(user_id, path, allowed_paths).await
             }
             Tool::MoveFile => {
                 let source = args["source"]
@@ -552,14 +552,14 @@ impl Tool {
                 let destination = args["destination"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'destination' argument"))?;
-                self.perform_move_file(source, destination, allowed_paths)
+                self.perform_move_file(user_id, source, destination, allowed_paths)
                     .await
             }
             Tool::CreateDir => {
                 let path = args["path"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
-                self.perform_create_dir(path, allowed_paths).await
+                self.perform_create_dir(user_id, path, allowed_paths).await
             }
             Tool::AuthorizePath => {
                 let path = args["path"]
@@ -890,10 +890,13 @@ impl Tool {
     /// Read a local file.
     async fn perform_file_read(
         &self,
+        user_id: i64,
         path_str: &str,
         allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
     ) -> Result<String> {
-        let canonical_target = self.validate_path(path_str, false, allowed_paths).await?;
+        let canonical_target = self
+            .validate_path(user_id, path_str, false, allowed_paths)
+            .await?;
 
         use std::io::Read;
         let file = std::fs::File::open(&canonical_target)?;
@@ -908,10 +911,13 @@ impl Tool {
     /// List contents of a directory.
     async fn perform_list_dir(
         &self,
+        user_id: i64,
         path_str: &str,
         allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
     ) -> Result<String> {
-        let canonical_target = self.validate_path(path_str, false, allowed_paths).await?;
+        let canonical_target = self
+            .validate_path(user_id, path_str, false, allowed_paths)
+            .await?;
 
         if !canonical_target.is_dir() {
             return Err(anyhow!("Path is not a directory: {}", path_str));
@@ -941,12 +947,13 @@ impl Tool {
     /// Move or rename a file/directory.
     async fn perform_move_file(
         &self,
+        user_id: i64,
         source_str: &str,
         dest_str: &str,
         allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
     ) -> Result<String> {
         let canonical_source = self
-            .validate_path(source_str, false, allowed_paths.clone())
+            .validate_path(user_id, source_str, false, allowed_paths.clone())
             .await?;
 
         // For destination, we allow it to NOT exist yet, so we validate its parent.
@@ -955,7 +962,12 @@ impl Tool {
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));
         let _ = self
-            .validate_path(dest_parent.to_str().unwrap_or("."), true, allowed_paths)
+            .validate_path(
+                user_id,
+                dest_parent.to_str().unwrap_or("."),
+                true,
+                allowed_paths,
+            )
             .await?;
 
         std::fs::rename(&canonical_source, dest_str)?;
@@ -965,11 +977,14 @@ impl Tool {
     /// Create a directory.
     async fn perform_create_dir(
         &self,
+        user_id: i64,
         path_str: &str,
         allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
     ) -> Result<String> {
         // Validate that we can create here.
-        let _ = self.validate_path(path_str, true, allowed_paths).await?;
+        let _ = self
+            .validate_path(user_id, path_str, true, allowed_paths)
+            .await?;
 
         std::fs::create_dir_all(path_str)?;
         Ok(format!("Successfully created directory: {}", path_str))
@@ -980,6 +995,7 @@ impl Tool {
     #[allow(clippy::too_many_arguments)]
     async fn validate_path(
         &self,
+        user_id: i64,
         path_str: &str,
         allow_non_existent: bool,
         allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
@@ -987,19 +1003,27 @@ impl Tool {
         let path = std::path::Path::new(path_str);
         let base_path = std::env::current_dir()?;
 
-        // Resolve absolute path
+        // Resolve paths
         let absolute_path = if path.is_absolute() {
             path.to_path_buf()
         } else {
             base_path.join(path)
         };
 
+        // Smart fallback: If relative path doesn't exist in root, try memory/{user_id}/
+        let target_path = if !path.is_absolute() && !absolute_path.exists() {
+            let user_base = base_path.join(format!("memory/{}", user_id));
+            user_base.join(path)
+        } else {
+            absolute_path
+        };
+
         // Canonicalize if it exists
-        let canonical_target = if absolute_path.exists() {
-            absolute_path.canonicalize()?
+        let canonical_target = if target_path.exists() {
+            target_path.canonicalize()?
         } else {
             if allow_non_existent {
-                absolute_path
+                target_path
             } else {
                 return Err(anyhow!("Path does not exist: {}", path_str));
             }
@@ -1020,7 +1044,6 @@ impl Tool {
                     return Ok(canonical_target);
                 }
             } else if canonical_target.starts_with(allowed_path) {
-                // Fallback for paths that might not exist yet but were authorized
                 return Ok(canonical_target);
             }
         }
@@ -1137,5 +1160,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_validate_path_user_fallback() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let base_path = temp.path().to_path_buf();
+        let original_dir = std::env::current_dir()?;
+        std::env::set_current_dir(&base_path)?;
+
+        let user_id = 123456;
+        let user_dir = base_path.join(format!("memory/{}", user_id));
+        let recipes_dir = user_dir.join("recipes");
+        std::fs::create_dir_all(&recipes_dir)?;
+
+        let recipe_file = recipes_dir.join("lasanha.md");
+        std::fs::write(&recipe_file, "conteudo da lasanha")?;
+
+        let tool = Tool::FileReader;
+        let allowed_paths = std::sync::Arc::new(tokio::sync::RwLock::new(vec![]));
+
+        // Test fallback for relative path "recipes/lasanha.md"
+        let resolved = tool
+            .validate_path(user_id, "recipes/lasanha.md", false, allowed_paths)
+            .await?;
+
+        assert!(resolved.exists());
+        assert!(
+            resolved
+                .to_str()
+                .unwrap()
+                .contains("memory/123456/recipes/lasanha.md")
+        );
+
+        // Restore directory
+        std::env::set_current_dir(original_dir)?;
+        Ok(())
     }
 }
