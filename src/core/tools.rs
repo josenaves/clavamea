@@ -870,7 +870,7 @@ impl Tool {
         for entry in std::fs::read_dir(recipes_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "md") {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "md") {
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
                     recipes.push(name.to_string());
                 }
