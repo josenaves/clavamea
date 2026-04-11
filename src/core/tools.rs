@@ -502,7 +502,6 @@ impl Tool {
         }
     }
 
-
     /// Parse a tool by its JSON definition name.
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
@@ -897,34 +896,44 @@ impl Tool {
                 let date = args["approximate_date"].as_str();
                 let tags = args["tags"].as_str();
                 let phase = args["phase"].as_str();
-                
+
                 let id = crate::db::queries::insert_book_episode(
-                    db_pool, user_id, date, content, tags, phase
-                ).await?;
-                
-                Ok(format!("Successfully recorded book episode memory with ID: {}", id))
+                    db_pool, user_id, date, content, tags, phase,
+                )
+                .await?;
+
+                Ok(format!(
+                    "Successfully recorded book episode memory with ID: {}",
+                    id
+                ))
             }
             Tool::SearchBookEpisodes => {
                 let tags = args["tags"].as_str();
                 let phase = args["phase"].as_str();
-                
-                let episodes = crate::db::queries::search_book_episodes(
-                    db_pool, user_id, tags, phase
-                ).await?;
-                
+
+                let episodes =
+                    crate::db::queries::search_book_episodes(db_pool, user_id, tags, phase).await?;
+
                 if episodes.is_empty() {
                     Ok("No matching episodes found.".to_string())
                 } else {
-                    let text_repr: Vec<String> = episodes.into_iter().map(|e| {
-                        format!("Episode {} (Date: {}, Phase: {}, Tags: {}):\n{}", 
-                            e.id, 
-                            e.approximate_date.unwrap_or_else(|| "Unknown".into()),
-                            e.phase.unwrap_or_else(|| "Unknown".into()),
-                            e.tags.unwrap_or_else(|| "None".into()),
-                            e.content
-                        )
-                    }).collect();
-                    Ok(format!("Found episodes:\n\n{}", text_repr.join("\n\n---\n\n")))
+                    let text_repr: Vec<String> = episodes
+                        .into_iter()
+                        .map(|e| {
+                            format!(
+                                "Episode {} (Date: {}, Phase: {}, Tags: {}):\n{}",
+                                e.id,
+                                e.approximate_date.unwrap_or_else(|| "Unknown".into()),
+                                e.phase.unwrap_or_else(|| "Unknown".into()),
+                                e.tags.unwrap_or_else(|| "None".into()),
+                                e.content
+                            )
+                        })
+                        .collect();
+                    Ok(format!(
+                        "Found episodes:\n\n{}",
+                        text_repr.join("\n\n---\n\n")
+                    ))
                 }
             }
             Tool::SaveBookChapter => {
@@ -937,11 +946,13 @@ impl Tool {
                 let content = args["content"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'content' argument"))?;
-                    
-                self.perform_save_book_chapter(db_pool, user_id, order_num, title, content, storage).await
+
+                self.perform_save_book_chapter(db_pool, user_id, order_num, title, content, storage)
+                    .await
             }
             Tool::ExportBookManuscript => {
-                self.perform_export_book_manuscript(db_pool, user_id, storage).await
+                self.perform_export_book_manuscript(db_pool, user_id, storage)
+                    .await
             }
         }
     }
@@ -957,14 +968,18 @@ impl Tool {
     ) -> Result<String> {
         let filename = format!("capitulo_{:02}.md", order_num);
         let sub_path = format!("manuscrito/{}", filename);
-        
+
         let file_content = format!("# {}\n\n{}", title, content);
-        
+
         storage.update_file(user_id, &sub_path, &file_content, false)?;
-        
-        crate::db::queries::insert_book_chapter(db_pool, user_id, order_num, title, &sub_path).await?;
-        
-        Ok(format!("Chapter {} saved successfully as {}.", order_num, sub_path))
+
+        crate::db::queries::insert_book_chapter(db_pool, user_id, order_num, title, &sub_path)
+            .await?;
+
+        Ok(format!(
+            "Chapter {} saved successfully as {}.",
+            order_num, sub_path
+        ))
     }
 
     async fn perform_export_book_manuscript(
@@ -974,11 +989,11 @@ impl Tool {
         storage: Arc<MemoryStorage>,
     ) -> Result<String> {
         let chapters = crate::db::queries::get_book_chapters(db_pool, user_id).await?;
-        
+
         if chapters.is_empty() {
             return Ok("No chapters found to export.".to_string());
         }
-        
+
         let mut final_content = String::new();
         final_content.push_str("# O Segredo da Suécia\n\n");
         final_content.push_str("## Sumário\n");
@@ -986,7 +1001,7 @@ impl Tool {
             final_content.push_str(&format!("* Capítulo {} - {}\n", chap.order_num, chap.title));
         }
         final_content.push_str("\n---\n\n");
-        
+
         for chap in &chapters {
             // Read from storage using perform_file_read's underlying storage logic
             // Directly reading using MemoryStorage path builder since we know it's a relative memory path
@@ -997,23 +1012,33 @@ impl Tool {
                 final_content.push_str(&text);
                 final_content.push_str("\n\n\\pagebreak\n\n");
             } else {
-                final_content.push_str(&format!("> [Erro: Arquivo não encontrado para o capítulo {}]\n\n", chap.order_num));
+                final_content.push_str(&format!(
+                    "> [Erro: Arquivo não encontrado para o capítulo {}]\n\n",
+                    chap.order_num
+                ));
             }
         }
-        
+
         // Add tags summary from episodes
         final_content.push_str("## Resumo de Tags por Episódio Registrado\n\n");
-        let episodes = crate::db::queries::search_book_episodes(db_pool, user_id, None, None).await?;
+        let episodes =
+            crate::db::queries::search_book_episodes(db_pool, user_id, None, None).await?;
         for e in episodes {
-            final_content.push_str(&format!("- Ep {}: Tags: [{}] (Phase: {})\n", 
-                e.id, 
-                e.tags.unwrap_or_default(), 
+            final_content.push_str(&format!(
+                "- Ep {}: Tags: [{}] (Phase: {})\n",
+                e.id,
+                e.tags.unwrap_or_default(),
                 e.phase.unwrap_or_default()
             ));
         }
-        
-        storage.update_file(user_id, "manuscrito/livro_completo.md", &final_content, false)?;
-        
+
+        storage.update_file(
+            user_id,
+            "manuscrito/livro_completo.md",
+            &final_content,
+            false,
+        )?;
+
         Ok("Manuscript successfully exported to manuscrito/livro_completo.md.".to_string())
     }
 

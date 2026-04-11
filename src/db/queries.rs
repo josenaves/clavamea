@@ -567,40 +567,88 @@ mod tests {
         );
         assert_eq!(due[0].payload.as_deref(), Some("night-owl"));
     }
-    
+
     #[tokio::test]
     async fn test_book_writing_queries() {
         let pool = make_pool().await;
-        
+
         let user_id = 1;
-        
+
         // 1. Insert and search episodes
-        insert_book_episode(&pool, user_id, Some("Inverno 2018"), "Nevou muito.", Some("inverno,neve"), Some("chegada")).await.unwrap();
-        insert_book_episode(&pool, user_id, Some("Verão 2019"), "Dias longos.", Some("verao,sol"), Some("adaptacao")).await.unwrap();
-        
-        let eps_all = search_book_episodes(&pool, user_id, None, None).await.unwrap();
+        insert_book_episode(
+            &pool,
+            user_id,
+            Some("Inverno 2018"),
+            "Nevou muito.",
+            Some("inverno,neve"),
+            Some("chegada"),
+        )
+        .await
+        .unwrap();
+        insert_book_episode(
+            &pool,
+            user_id,
+            Some("Verão 2019"),
+            "Dias longos.",
+            Some("verao,sol"),
+            Some("adaptacao"),
+        )
+        .await
+        .unwrap();
+
+        let eps_all = search_book_episodes(&pool, user_id, None, None)
+            .await
+            .unwrap();
         assert_eq!(eps_all.len(), 2);
-        
-        let eps_neve = search_book_episodes(&pool, user_id, Some("neve"), None).await.unwrap();
+
+        let eps_neve = search_book_episodes(&pool, user_id, Some("neve"), None)
+            .await
+            .unwrap();
         assert_eq!(eps_neve.len(), 1);
         assert_eq!(eps_neve[0].content, "Nevou muito.");
-        
-        let eps_fase = search_book_episodes(&pool, user_id, None, Some("adaptacao")).await.unwrap();
+
+        let eps_fase = search_book_episodes(&pool, user_id, None, Some("adaptacao"))
+            .await
+            .unwrap();
         assert_eq!(eps_fase.len(), 1);
         assert_eq!(eps_fase[0].content, "Dias longos.");
-        
+
         // 2. Insert and get chapters
-        insert_book_chapter(&pool, user_id, 2, "O Sol da Meia-noite", "manuscrito/capitulo_02.md").await.unwrap();
-        insert_book_chapter(&pool, user_id, 1, "Chegada no Frio", "manuscrito/capitulo_01.md").await.unwrap();
-        
+        insert_book_chapter(
+            &pool,
+            user_id,
+            2,
+            "O Sol da Meia-noite",
+            "manuscrito/capitulo_02.md",
+        )
+        .await
+        .unwrap();
+        insert_book_chapter(
+            &pool,
+            user_id,
+            1,
+            "Chegada no Frio",
+            "manuscrito/capitulo_01.md",
+        )
+        .await
+        .unwrap();
+
         // Ensure they are ordered by order_num ASC
         let chaps = get_book_chapters(&pool, user_id).await.unwrap();
         assert_eq!(chaps.len(), 2);
         assert_eq!(chaps[0].order_num, 1);
         assert_eq!(chaps[1].order_num, 2);
-        
+
         // Replace existing chapter correctly
-        insert_book_chapter(&pool, user_id, 1, "A Longa Chegada", "manuscrito/capitulo_01.md").await.unwrap();
+        insert_book_chapter(
+            &pool,
+            user_id,
+            1,
+            "A Longa Chegada",
+            "manuscrito/capitulo_01.md",
+        )
+        .await
+        .unwrap();
         let chaps_after = get_book_chapters(&pool, user_id).await.unwrap();
         assert_eq!(chaps_after.len(), 2, "Should replace, not duplicate");
         assert_eq!(chaps_after[0].title, "A Longa Chegada");
@@ -643,25 +691,25 @@ pub async fn search_book_episodes(
     phase: Option<&str>,
 ) -> Result<Vec<crate::db::models::BookEpisode>> {
     let mut query_str = String::from("SELECT * FROM book_episodes WHERE user_id = ?");
-    
+
     if tags.is_some() {
         query_str.push_str(" AND tags LIKE ?");
     }
     if phase.is_some() {
         query_str.push_str(" AND phase = ?");
     }
-    
+
     query_str.push_str(" ORDER BY created_at ASC");
 
     let mut query = sqlx::query_as::<_, crate::db::models::BookEpisode>(&query_str).bind(user_id);
-    
+
     if let Some(t) = tags {
         query = query.bind(format!("%{}%", t));
     }
     if let Some(p) = phase {
         query = query.bind(p);
     }
-    
+
     let episodes = query.fetch_all(pool).await?;
     Ok(episodes)
 }
@@ -699,13 +747,15 @@ pub async fn insert_book_chapter(
 }
 
 /// Get all book chapters for a user ordered by order_num.
-pub async fn get_book_chapters(pool: &Pool, user_id: i64) -> Result<Vec<crate::db::models::BookChapter>> {
+pub async fn get_book_chapters(
+    pool: &Pool,
+    user_id: i64,
+) -> Result<Vec<crate::db::models::BookChapter>> {
     let chapters = sqlx::query_as::<_, crate::db::models::BookChapter>(
-        "SELECT * FROM book_chapters WHERE user_id = ? ORDER BY order_num ASC"
+        "SELECT * FROM book_chapters WHERE user_id = ? ORDER BY order_num ASC",
     )
     .bind(user_id)
     .fetch_all(pool)
     .await?;
     Ok(chapters)
 }
-
