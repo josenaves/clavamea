@@ -144,3 +144,26 @@ pub struct Schedule {
     pub last_run: Option<String>,
     pub created_at: DateTime<Utc>,
 }
+
+/// A book episode (memory recorded for writing a book).
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BookEpisode {
+    pub id: i64,
+    pub user_id: i64,
+    pub approximate_date: Option<String>,
+    pub content: String,
+    pub tags: Option<String>,
+    pub phase: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// A book chapter metadata record.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BookChapter {
+    pub id: i64,
+    pub user_id: i64,
+    pub order_num: i64,
+    pub title: String,
+    pub filepath: String,
+    pub created_at: DateTime<Utc>,
+}
