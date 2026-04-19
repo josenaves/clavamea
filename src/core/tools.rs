@@ -34,6 +34,11 @@ pub enum Tool {
     SearchBookEpisodes,
     SaveBookChapter,
     ExportBookManuscript,
+    EditCode,
+    GitOperate,
+    GithubReadIssues,
+    GithubUpdateIssue,
+    GithubCreatePullRequest,
     // Future tools will be added here
 }
 
@@ -499,6 +504,109 @@ impl Tool {
                     }
                 }
             }),
+            Tool::EditCode => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "edit_code",
+                    "description": "Modifies or creates a file in the workspace to write code.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "The path of the file to edit or create."
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "The new content to write."
+                            }
+                        },
+                        "required": ["path", "content"]
+                    }
+                }
+            }),
+            Tool::GitOperate => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "git_operate",
+                    "description": "Executes a git command in the workspace.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The git command to run (e.g. 'status', 'add .', 'commit -m \"msg\"', 'push')."
+                            }
+                        },
+                        "required": ["command"]
+                    }
+                }
+            }),
+            Tool::GithubReadIssues => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "github_read_issues",
+                    "description": "Reads open issues assigned to the bot from GitHub.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            }),
+            Tool::GithubUpdateIssue => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "github_update_issue",
+                    "description": "Adds a comment or closes an issue on GitHub. Use this after completing a task or to ask for clarification.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "issue_number": {
+                                "type": "integer",
+                                "description": "The GitHub issue number."
+                            },
+                            "comment": {
+                                "type": "string",
+                                "description": "The comment to write to the issue."
+                            },
+                            "close": {
+                                "type": "boolean",
+                                "description": "Whether to close the issue after commenting."
+                            }
+                        },
+                        "required": ["issue_number"]
+                    }
+                }
+            }),
+            Tool::GithubCreatePullRequest => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "github_create_pull_request",
+                    "description": "Creates a Pull Request on GitHub. IMPORTANT: You MUST create a branch and push your changes using git_operate BEFORE calling this tool.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "The title of the Pull Request."
+                            },
+                            "body": {
+                                "type": "string",
+                                "description": "The description/body of the Pull Request."
+                            },
+                            "head": {
+                                "type": "string",
+                                "description": "The name of the branch where your changes are (e.g., 'feature-new-skill')."
+                            },
+                            "base": {
+                                "type": "string",
+                                "description": "The branch you want to merge into (usually 'main')."
+                            }
+                        },
+                        "required": ["title", "body", "head", "base"]
+                    }
+                }
+            }),
         }
     }
 
@@ -528,6 +636,11 @@ impl Tool {
             "search_book_episodes" => Some(Tool::SearchBookEpisodes),
             "save_book_chapter" => Some(Tool::SaveBookChapter),
             "export_book_manuscript" => Some(Tool::ExportBookManuscript),
+            "edit_code" => Some(Tool::EditCode),
+            "git_operate" => Some(Tool::GitOperate),
+            "github_read_issues" => Some(Tool::GithubReadIssues),
+            "github_update_issue" => Some(Tool::GithubUpdateIssue),
+            "github_create_pull_request" => Some(Tool::GithubCreatePullRequest),
             _ => None,
         }
     }
@@ -954,6 +1067,47 @@ impl Tool {
                 self.perform_export_book_manuscript(db_pool, user_id, storage)
                     .await
             }
+            Tool::EditCode => {
+                let path = args["path"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'path' argument"))?;
+                let content = args["content"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'content' argument"))?;
+                self.perform_edit_code(path, content).await
+            }
+            Tool::GitOperate => {
+                let command = args["command"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'command' argument"))?;
+                self.perform_git_operate(command).await
+            }
+            Tool::GithubReadIssues => self.perform_github_read_issues().await,
+            Tool::GithubUpdateIssue => {
+                let issue_num = args["issue_number"]
+                    .as_i64()
+                    .ok_or_else(|| anyhow!("Missing 'issue_number' argument"))?;
+                let comment = args["comment"].as_str();
+                let close = args["close"].as_bool();
+                self.perform_github_update_issue(issue_num, comment, close)
+                    .await
+            }
+            Tool::GithubCreatePullRequest => {
+                let title = args["title"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'title' argument"))?;
+                let body = args["body"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'body' argument"))?;
+                let head = args["head"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'head' argument"))?;
+                let base = args["base"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'base' argument"))?;
+                self.perform_github_create_pull_request(title, body, head, base)
+                    .await
+            }
         }
     }
 
@@ -1345,6 +1499,198 @@ impl Tool {
             ))
         }
     }
+
+    async fn perform_edit_code(&self, path_str: &str, content: &str) -> Result<String> {
+        let path = std::path::Path::new(path_str);
+        // Basic security to prevent exiting the project root
+        if path.is_absolute() || path_str.contains("..") {
+            return Err(anyhow!(
+                "Invalid path: must be a relative path within the repository without '..'"
+            ));
+        }
+
+        let parent = path.parent().unwrap_or_else(|| std::path::Path::new(""));
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        std::fs::write(path, content)?;
+        Ok(format!("Successfully wrote code to {}.", path_str))
+    }
+
+    async fn perform_git_operate(&self, command: &str) -> Result<String> {
+        let args_vec: Vec<&str> = command.split_whitespace().collect();
+        if args_vec.is_empty() {
+            return Err(anyhow!("Empty git command."));
+        }
+
+        let output = std::process::Command::new("git").args(&args_vec).output()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        if !output.status.success() {
+            return Err(anyhow!(
+                "Git command failed.\nStdout: {}\nStderr: {}",
+                stdout,
+                stderr
+            ));
+        }
+
+        Ok(format!("Git operation successful.\nOutput:\n{}", stdout))
+    }
+
+    async fn perform_github_read_issues(&self) -> Result<String> {
+        let token = std::env::var("GITHUB_TOKEN")
+            .map_err(|_| anyhow!("GITHUB_TOKEN not configured in environment"))?;
+
+        let client = reqwest::Client::builder()
+            .user_agent("ClavaMea/1.6.0")
+            .build()?;
+
+        let repo = "josenaves/clavamea"; // Default repo as instructed
+        let url = format!("https://api.github.com/repos/{}/issues?state=open", repo);
+
+        let res = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Accept", "application/vnd.github.v3+json")
+            .send()
+            .await?;
+
+        if !res.status().is_success() {
+            return Err(anyhow!("Failed to fetch issues: {}", res.status()));
+        }
+
+        let issues: Vec<Value> = res.json().await?;
+        if issues.is_empty() {
+            return Ok("No open issues found.".to_string());
+        }
+
+        let mut output = String::from("Open Issues:\n\n");
+        for issue in issues.iter() {
+            if issue["pull_request"].is_object() {
+                continue; // Skip PRs, only list issues
+            }
+            let number = issue["number"].as_i64().unwrap_or(0);
+            let title = issue["title"].as_str().unwrap_or("No title");
+            output.push_str(&format!("#{}: {}\n", number, title));
+        }
+
+        Ok(output)
+    }
+
+    async fn perform_github_update_issue(
+        &self,
+        issue_num: i64,
+        comment: Option<&str>,
+        close: Option<bool>,
+    ) -> Result<String> {
+        let token = std::env::var("GITHUB_TOKEN")
+            .map_err(|_| anyhow!("GITHUB_TOKEN not configured in environment"))?;
+
+        let client = reqwest::Client::builder()
+            .user_agent("ClavaMea/1.6.0")
+            .build()?;
+
+        let repo = "josenaves/clavamea"; // Default repo
+
+        let mut result_msg = String::new();
+
+        // 1. Post comment if provided
+        if let Some(c) = comment {
+            let url = format!(
+                "https://api.github.com/repos/{}/issues/{}/comments",
+                repo, issue_num
+            );
+            let body = serde_json::json!({ "body": c });
+            let res = client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Accept", "application/vnd.github.v3+json")
+                .json(&body)
+                .send()
+                .await?;
+
+            if res.status().is_success() {
+                result_msg.push_str("Successfully posted comment.\n");
+            } else {
+                return Err(anyhow!("Failed to post comment: {}", res.status()));
+            }
+        }
+
+        // 2. Close issue if requested
+        if let Some(true) = close {
+            let url = format!("https://api.github.com/repos/{}/issues/{}", repo, issue_num);
+            let body = serde_json::json!({ "state": "closed" });
+            let res = client
+                .patch(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Accept", "application/vnd.github.v3+json")
+                .json(&body)
+                .send()
+                .await?;
+
+            if res.status().is_success() {
+                result_msg.push_str("Successfully closed the issue.\n");
+            } else {
+                return Err(anyhow!("Failed to close issue: {}", res.status()));
+            }
+        }
+
+        if result_msg.is_empty() {
+            Ok("No action taken (no comment or close command provided).".to_string())
+        } else {
+            Ok(result_msg)
+        }
+    }
+
+    async fn perform_github_create_pull_request(
+        &self,
+        title: &str,
+        body: &str,
+        head: &str,
+        base: &str,
+    ) -> Result<String> {
+        let token = std::env::var("GITHUB_TOKEN")
+            .map_err(|_| anyhow!("GITHUB_TOKEN not configured in environment"))?;
+
+        let client = reqwest::Client::builder()
+            .user_agent("ClavaMea/1.6.0")
+            .build()?;
+
+        let repo = "josenaves/clavamea";
+
+        let url = format!("https://api.github.com/repos/{}/pulls", repo);
+        let payload = serde_json::json!({
+            "title": title,
+            "body": body,
+            "head": head,
+            "base": base
+        });
+
+        let res = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Accept", "application/vnd.github.v3+json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        if res.status().is_success() {
+            let pr: Value = res.json().await?;
+            let pr_url = pr["html_url"].as_str().unwrap_or("unknown URL");
+            Ok(format!("Pull Request created successfully: {}", pr_url))
+        } else {
+            let status = res.status();
+            let err_body = res.text().await.unwrap_or_default();
+            Err(anyhow!(
+                "Failed to create Pull Request: {} - {}",
+                status,
+                err_body
+            ))
+        }
+    }
 }
 
 /// Get all available tools for the current phase.
@@ -1376,6 +1722,11 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
             Tool::SearchBookEpisodes,
             Tool::SaveBookChapter,
             Tool::ExportBookManuscript,
+            Tool::EditCode,
+            Tool::GitOperate,
+            Tool::GithubReadIssues,
+            Tool::GithubUpdateIssue,
+            Tool::GithubCreatePullRequest,
         ],
         _ => vec![],
     }

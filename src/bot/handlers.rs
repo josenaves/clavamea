@@ -12,11 +12,15 @@ use crate::db::models::{Interaction, NewInteraction, User};
 
 /// Current bot version. Bump this string whenever new tools or features are deployed.
 /// Users will automatically receive a "What's New" notification on their next message.
-const BOT_VERSION: &str = "1.5.1";
+const BOT_VERSION: &str = "1.6.0";
 
 /// Changelog shown to users when the bot is updated.
 /// Update this text whenever BOT_VERSION changes.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
+
+**v1\.6\.0 — Agentic Self\-Evolving**
+• **Modo Autônomo\!** O ClavaMea agora pode editar seu próprio código, realizar commits com o git e ler e responder a issues diretamente no Github\.
+• Ferramentas: `edit_code`, `git_operate`, `github_read_issues`, e `github_update_issue`\.
 
 **v1\.5\.1 — Gestão de Receitas**
 • **Habilidade de Culinária\!** Importe receitas de links, arquivos ou texto\.
