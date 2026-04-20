@@ -3,8 +3,11 @@ use crate::db::connection::Pool;
 use crate::db::models::{Interaction, NewInteraction};
 use anyhow::{Result, anyhow};
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use teloxide::prelude::*;
+use teloxide::types::InputFile;
+use tokio::process::Command;
 
 use crate::core::rag::RagManager;
 
@@ -39,6 +42,7 @@ pub enum Tool {
     GithubReadIssues,
     GithubUpdateIssue,
     GithubCreatePullRequest,
+    DownloadMusic,
     // Future tools will be added here
 }
 
@@ -607,6 +611,23 @@ impl Tool {
                     }
                 }
             }),
+            Tool::DownloadMusic => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "download_music",
+                    "description": "Downloads and converts a YouTube video to a high-quality MP3 (max 10 minutes).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "description": "The YouTube URL of the song."
+                            }
+                        },
+                        "required": ["url"]
+                    }
+                }
+            }),
         }
     }
 
@@ -641,6 +662,7 @@ impl Tool {
             "github_read_issues" => Some(Tool::GithubReadIssues),
             "github_update_issue" => Some(Tool::GithubUpdateIssue),
             "github_create_pull_request" => Some(Tool::GithubCreatePullRequest),
+            "download_music" => Some(Tool::DownloadMusic),
             _ => None,
         }
     }
@@ -649,6 +671,8 @@ impl Tool {
     #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &self,
+        bot: &Bot,
+        chat_id: ChatId,
         user_id: i64,
         args: &Value,
         storage: Arc<MemoryStorage>,
@@ -1107,6 +1131,12 @@ impl Tool {
                     .ok_or_else(|| anyhow!("Missing 'base' argument"))?;
                 self.perform_github_create_pull_request(title, body, head, base)
                     .await
+            }
+            Tool::DownloadMusic => {
+                let url = args["url"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'url' argument"))?;
+                self.perform_download_music(bot, chat_id, url).await
             }
         }
     }
@@ -1691,6 +1721,86 @@ impl Tool {
             ))
         }
     }
+
+    async fn perform_download_music(
+        &self,
+        bot: &Bot,
+        chat_id: ChatId,
+        url: &str,
+    ) -> Result<String> {
+        let download_dir = Path::new("data/downloads/music");
+        if !download_dir.exists() {
+            std::fs::create_dir_all(download_dir)?;
+        }
+
+        // Use a unique ID for this download to avoid filename collisions
+        let download_uuid = uuid::Uuid::new_v4().to_string();
+        let output_template = format!(
+            "{}/%(title)s_{}.%(ext)s",
+            download_dir.display(),
+            download_uuid
+        );
+
+        tracing::info!("Downloading music from YouTube: {}", url);
+
+        // Run yt-dlp
+        // -x: extract audio
+        // --audio-format mp3
+        // --audio-quality 0: best quality
+        // --match-filter "duration <= 600": 10 minutes limit
+        let output = Command::new("yt-dlp")
+            .arg("-x")
+            .arg("--audio-format")
+            .arg("mp3")
+            .arg("--audio-quality")
+            .arg("0")
+            .arg("--match-filter")
+            .arg("duration <= 600")
+            .arg("-o")
+            .arg(&output_template)
+            .arg(url)
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            tracing::error!("yt-dlp failed: {}", err);
+            if err.contains("Does not pass filter duration") {
+                return Ok(
+                    "Erro: O vídeo é muito longo. O limite máximo é de 10 minutos.".to_string(),
+                );
+            }
+            return Err(anyhow!("Failed to download music: {}", err));
+        }
+
+        // Find the downloaded file
+        // Since we used a UUID in the template, we can look for files containing that UUID
+        let mut downloaded_file = None;
+        for entry in std::fs::read_dir(download_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                    if file_name.contains(&download_uuid) && file_name.ends_with(".mp3") {
+                        downloaded_file = Some(path);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let file_path =
+            downloaded_file.ok_or_else(|| anyhow!("Could not find the downloaded MP3 file."))?;
+
+        // Send to Telegram
+        tracing::info!("Sending audio file to Telegram: {:?}", file_path);
+        bot.send_audio(chat_id, InputFile::file(&file_path)).await?;
+
+        // Clean up
+        let _ = std::fs::remove_file(&file_path);
+
+        Ok("Música baixada e enviada com sucesso!".to_string())
+    }
 }
 
 /// Get all available tools for the current phase.
@@ -1727,6 +1837,7 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
             Tool::GithubReadIssues,
             Tool::GithubUpdateIssue,
             Tool::GithubCreatePullRequest,
+            Tool::DownloadMusic,
         ],
         _ => vec![],
     }

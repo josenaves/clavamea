@@ -12,11 +12,17 @@ use crate::db::models::{Interaction, NewInteraction, User};
 
 /// Current bot version. Bump this string whenever new tools or features are deployed.
 /// Users will automatically receive a "What's New" notification on their next message.
-const BOT_VERSION: &str = "1.6.0";
+const BOT_VERSION: &str = "1.7.0";
 
 /// Changelog shown to users when the bot is updated.
 /// Update this text whenever BOT_VERSION changes.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
+
+**v1\.7\.0 — YouTube Music Downloader**
+• **Música no Telegram\!** Baixe qualquer música do YouTube diretamente para o seu chat\.
+• O ClavaMea agora converte vídeos para MP3 de alta qualidade e envia o arquivo para você\.
+• Limite: vídeos de até 10 minutos\.
+• Ferramenta: `download_music`\.
 
 **v1\.6\.0 — Agentic Self\-Evolving**
 • **Modo Autônomo\!** O ClavaMea agora pode editar seu próprio código, realizar commits com o git e ler e responder a issues diretamente no Github\.
@@ -322,6 +328,8 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
                         if let Some(tool) = tool_option {
                             match tool
                                 .execute(
+                                    &bot,
+                                    msg.chat.id,
                                     user_id,
                                     &args,
                                     state.engine.storage.clone(),
