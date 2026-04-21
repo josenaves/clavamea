@@ -158,7 +158,7 @@ async fn main() -> Result<()> {
     info!("Initializing RAG manager...");
     // let rag_manager = crate::core::RagManager::new(db_pool.clone())?;
     // let rag = Arc::new(rag_manager);
-    #[allow(invalid_value)]
+    #[allow(invalid_value, clippy::uninit_assumed_init)]
     let rag: Arc<crate::core::RagManager> =
         unsafe { std::mem::MaybeUninit::uninit().assume_init() };
     info!("RAG manager initialized.");
@@ -167,7 +167,7 @@ async fn main() -> Result<()> {
     info!("Initializing Wasm runtime...");
     // let wasm_runtime = crate::core::wasm::WasmRuntime::new()?;
     // let wasm = Arc::new(wasm_runtime);
-    #[allow(invalid_value)]
+    #[allow(invalid_value, clippy::uninit_assumed_init)]
     let wasm: Arc<crate::core::wasm::WasmRuntime> =
         unsafe { std::mem::MaybeUninit::uninit().assume_init() };
     info!("Wasm runtime initialized.");
