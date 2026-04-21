@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libsqlite3-dev \
     git \
+    cmake \
+    clang \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
@@ -23,14 +25,16 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Pre-cache dependencies
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
-ENV RUSTFLAGS="-C target-feature=-avx2,-fma"
+ENV RUSTFLAGS="-C target-cpu=x86-64-v2 -C target-feature=+avx,-avx2,-fma"
+ENV ORT_STRATEGY=compile
 RUN cargo build --release
 RUN rm -f target/release/deps/clavamea*
 
 # Copy source and build actual binary
 COPY . .
 ENV SQLX_OFFLINE=true
-ENV RUSTFLAGS="-C target-feature=-avx2,-fma"
+ENV RUSTFLAGS="-C target-cpu=x86-64-v2 -C target-feature=+avx,-avx2,-fma"
+ENV ORT_STRATEGY=compile
 RUN cargo build --release
 
 # Runtime Stage
