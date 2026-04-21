@@ -12,11 +12,16 @@ use crate::db::models::{Interaction, NewInteraction, User};
 
 /// Current bot version. Bump this string whenever new tools or features are deployed.
 /// Users will automatically receive a "What's New" notification on their next message.
-const BOT_VERSION: &str = "1.7.0";
+const BOT_VERSION: &str = "1.8.0";
 
 /// Changelog shown to users when the bot is updated.
 /// Update this text whenever BOT_VERSION changes.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
+
+**v1\.8\.0 — Integração WhatsApp**
+• **WhatsApp\!** Agora o ClavaMea pode ser acessado pelo WhatsApp via ponte com o WhatsApp Web\.
+• Mesmas ferramentas e inteligência do Telegram, agora no mensageiro mais popular do Brasil\.
+• Controle de acesso unificado: aprovação de usuários funciona para ambos os canais\.
 
 **v1\.7\.0 — YouTube Music Downloader**
 • **Música no Telegram\!** Baixe qualquer música do YouTube diretamente para o seu chat\.

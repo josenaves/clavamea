@@ -1,6 +1,6 @@
 //! ClavaMea - Sovereign, private AI assistant.
 //!
-//! Entry point for the Telegram bot application.
+//! Entry point for the Telegram + WhatsApp bot application.
 
 #![allow(dead_code)]
 #![allow(clippy::collapsible_if)]
@@ -9,6 +9,7 @@ mod bot;
 mod core;
 mod db;
 mod i18n;
+mod whatsapp;
 
 use std::env;
 use std::path::Path;
@@ -190,8 +191,42 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Set up the dispatcher with our schema
-    info!("Setting up dispatcher...");
+    // Initialize and spawn WhatsApp webhook server (if configured)
+    let whatsapp_bridge_url = env::var("WHATSAPP_BRIDGE_URL").ok();
+    if let Some(bridge_url) = whatsapp_bridge_url {
+        let webhook_port: u16 = env::var("WHATSAPP_WEBHOOK_PORT")
+            .unwrap_or_else(|_| "8081".to_string())
+            .parse()
+            .expect("WHATSAPP_WEBHOOK_PORT must be a valid port number");
+
+        info!(
+            "Starting WhatsApp webhook server on port {}...",
+            webhook_port
+        );
+        info!("WhatsApp bridge URL: {}", bridge_url);
+
+        let wa_sender = crate::whatsapp::sender::WhatsAppSender::new(&bridge_url);
+        let wa_state = crate::whatsapp::webhook::WhatsAppWebhookState {
+            app_state: state.clone(),
+            sender: wa_sender,
+        };
+        let wa_router = crate::whatsapp::webhook::create_router(wa_state);
+
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", webhook_port))
+                .await
+                .expect("Failed to bind WhatsApp webhook port");
+            info!("WhatsApp webhook server listening on port {}", webhook_port);
+            if let Err(e) = axum::serve(listener, wa_router).await {
+                error!("WhatsApp webhook server error: {}", e);
+            }
+        });
+    } else {
+        info!("WhatsApp integration disabled (WHATSAPP_BRIDGE_URL not set).");
+    }
+
+    // Set up the Telegram dispatcher with our schema
+    info!("Setting up Telegram dispatcher...");
     Dispatcher::builder(bot, router::schema())
         .dependencies(dptree::deps![state])
         .enable_ctrlc_handler()

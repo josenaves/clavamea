@@ -11,3 +11,28 @@ services:
       - DATABASE_URL=sqlite:/app/data/clavamea.db
       - MEMORY_DIR=/app/memory
       - LOCALES_DIR=/app/locales
+      # WhatsApp integration — bridge URL points to the companion service
+      - WHATSAPP_BRIDGE_URL=http://whatsapp-bridge:8082
+      - WHATSAPP_WEBHOOK_PORT=8081
+    ports:
+      - "8081:8081"
+    depends_on:
+      whatsapp-bridge:
+        condition: service_started
+
+  whatsapp-bridge:
+    build:
+      context: ./whatsapp-bridge
+      dockerfile: Dockerfile
+    image: ${WA_BRIDGE_IMAGE:-whatsapp-bridge:latest}
+    container_name: whatsapp-bridge
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data/whatsapp:/app/data
+    environment:
+      - WHATSAPP_DB_PATH=/app/data/whatsapp.db
+      - WHATSAPP_BRIDGE_PORT=8082
+      - CLAVAMEA_WEBHOOK_URL=http://clavamea:8081/wa/webhook
+    ports:
+      - "8082:8082"

@@ -1,6 +1,6 @@
 # Rust
-/target
-/debug
+target/
+debug/
 **/*.rs.bk
 
 # Environment variables
