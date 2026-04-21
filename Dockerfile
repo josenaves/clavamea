@@ -1,5 +1,5 @@
 # Build Stage
-FROM rust:1.81-bookworm AS builder
+FROM rust:bookworm AS builder
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
