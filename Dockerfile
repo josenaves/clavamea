@@ -1,5 +1,5 @@
 # Build Stage
-FROM ubuntu:24.04 AS builder
+FROM rust:1.81-bookworm AS builder
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -8,17 +8,11 @@ WORKDIR /usr/src/clavamea
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
-    curl \
-    build-essential \
     pkg-config \
     libssl-dev \
     libsqlite3-dev \
     git \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Pre-cache dependencies
 COPY Cargo.toml Cargo.lock ./
