@@ -4,11 +4,11 @@ use crate::db::Pool;
 use crate::db::models::DocumentChunk;
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Manages the local RAG system: embedding documents and searching across them.
 pub struct RagManager {
-    embedding_model: Arc<TextEmbedding>,
+    embedding_model: Mutex<TextEmbedding>,
     db_pool: Pool,
 }
 
@@ -23,7 +23,7 @@ impl RagManager {
         let model = TextEmbedding::try_new(options)?;
 
         Ok(Self {
-            embedding_model: Arc::new(model),
+            embedding_model: Mutex::new(model),
             db_pool,
         })
     }
@@ -40,7 +40,9 @@ impl RagManager {
         let chunks = self.chunk_text(content, 500, 50);
 
         // 2. Generate embeddings for all chunks
-        let embeddings = self.embedding_model.embed(chunks.clone(), None)?;
+        let embeddings = self.embedding_model.lock()
+            .map_err(|e| anyhow::anyhow!("Mutex error: {}", e))?
+            .embed(chunks.clone(), None)?;
 
         // 3. Store document and chunks in the database
         let mut tx = self.db_pool.begin().await?;
@@ -83,7 +85,10 @@ impl RagManager {
     /// Search for relevant document chunks based on a query for a specific user.
     pub async fn search(&self, user_id: i64, query: &str, limit: usize) -> Result<Vec<String>> {
         // 1. Embed the query
-        let query_embedding = &self.embedding_model.embed(vec![query], None)?[0];
+        let query_embedding_vec = self.embedding_model.lock()
+            .map_err(|e| anyhow::anyhow!("Mutex error: {}", e))?
+            .embed(vec![query], None)?;
+        let query_embedding = &query_embedding_vec[0];
 
         // 2. Fetch all chunks for this user from the database
         let all_chunks: Vec<DocumentChunk> = sqlx::query_as::<_, DocumentChunk>(

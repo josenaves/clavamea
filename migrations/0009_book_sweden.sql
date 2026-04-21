@@ -1,4 +1,8 @@
-CREATE TABLE book_episodes (
+-- Migration: 0009_book_sweden.sql
+-- Description: Create tables for "O Segredo da Suécia" book project.
+-- Idempotent: Using IF NOT EXISTS to prevent errors if migration is partially run.
+
+CREATE TABLE IF NOT EXISTS book_episodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     approximate_date TEXT,
@@ -9,7 +13,7 @@ CREATE TABLE book_episodes (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
-CREATE TABLE book_chapters (
+CREATE TABLE IF NOT EXISTS book_chapters (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     order_num INTEGER NOT NULL,

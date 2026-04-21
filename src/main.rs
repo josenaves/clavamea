@@ -172,7 +172,7 @@ async fn main() -> Result<()> {
 
     // Create application state
     let state = AppState::new(
-        db_pool,
+        db_pool.clone(),
         engine.clone(),
         i18n.clone(),
         rag,
@@ -191,38 +191,31 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Initialize and spawn WhatsApp webhook server (if configured)
-    let whatsapp_bridge_url = env::var("WHATSAPP_BRIDGE_URL").ok();
-    if let Some(bridge_url) = whatsapp_bridge_url {
-        let webhook_port: u16 = env::var("WHATSAPP_WEBHOOK_PORT")
-            .unwrap_or_else(|_| "8081".to_string())
-            .parse()
-            .expect("WHATSAPP_WEBHOOK_PORT must be a valid port number");
+    // Initialize and spawn WhatsApp service (integrated)
+    let enable_whatsapp = env::var("ENABLE_WHATSAPP")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
 
-        info!(
-            "Starting WhatsApp webhook server on port {}...",
-            webhook_port
-        );
-        info!("WhatsApp bridge URL: {}", bridge_url);
-
-        let wa_sender = crate::whatsapp::sender::WhatsAppSender::new(&bridge_url);
-        let wa_state = crate::whatsapp::webhook::WhatsAppWebhookState {
-            app_state: state.clone(),
-            sender: wa_sender,
+    if enable_whatsapp {
+        // WhatsApp Manager handles the background bot loop
+        let processor_sender_state = Arc::new(tokio::sync::RwLock::new(None));
+        let wa_sender = crate::whatsapp::sender::WhatsAppSender::new(processor_sender_state.clone());
+        let wa_processor = crate::whatsapp::processor::WhatsAppProcessor::new(state.clone(), wa_sender);
+        
+        let wa_manager = crate::whatsapp::manager::WhatsAppManager {
+            db_pool: db_pool.clone(),
+            client: processor_sender_state,
+            processor: wa_processor,
         };
-        let wa_router = crate::whatsapp::webhook::create_router(wa_state);
 
         tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", webhook_port))
-                .await
-                .expect("Failed to bind WhatsApp webhook port");
-            info!("WhatsApp webhook server listening on port {}", webhook_port);
-            if let Err(e) = axum::serve(listener, wa_router).await {
-                error!("WhatsApp webhook server error: {}", e);
+            if let Err(e) = wa_manager.run().await {
+                error!("WhatsApp service error: {}", e);
             }
         });
     } else {
-        info!("WhatsApp integration disabled (WHATSAPP_BRIDGE_URL not set).");
+        info!("WhatsApp integration disabled (ENABLE_WHATSAPP not set to true).");
     }
 
     // Set up the Telegram dispatcher with our schema

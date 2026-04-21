@@ -1,74 +1,62 @@
-//! HTTP client for sending messages back to the WhatsApp bridge.
+//! Client for sending messages directly via the local WhatsApp service.
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-/// Payload for sending a message via the WhatsApp bridge.
-#[derive(Debug, Serialize)]
-pub struct SendPayload {
-    pub jid: String,
-    pub text: String,
-}
+// Import necessary waproto types from whatsapp-rust
+use whatsapp_rust::waproto::whatsapp as wa;
 
-/// Response from the WhatsApp bridge /send endpoint.
-#[derive(Debug, Deserialize)]
-pub struct SendResponse {
-    pub ok: bool,
-    pub error: Option<String>,
-}
-
-/// Client for communicating with the WhatsApp bridge.
+/// Client for sending messages via the local WhatsApp connection.
 #[derive(Clone)]
 pub struct WhatsAppSender {
-    http_client: reqwest::Client,
-    bridge_url: String,
+    /// Shared reference to the WhatsApp client.
+    client_state: Arc<RwLock<Option<Arc<whatsapp_rust::client::Client>>>>,
 }
 
 impl WhatsAppSender {
-    /// Create a new sender pointing to the given bridge base URL.
-    pub fn new(bridge_url: &str) -> Self {
-        Self {
-            http_client: reqwest::Client::new(),
-            bridge_url: bridge_url.trim_end_matches('/').to_string(),
-        }
+    /// Create a new sender with the shared client state.
+    pub fn new(client_state: Arc<RwLock<Option<Arc<whatsapp_rust::client::Client>>>>) -> Self {
+        Self { client_state }
     }
 
-    /// Send a text message to a WhatsApp JID via the bridge.
-    pub async fn send_message(&self, jid: &str, text: &str) -> Result<()> {
-        let url = format!("{}/send", self.bridge_url);
-        let payload = SendPayload {
-            jid: jid.to_string(),
-            text: text.to_string(),
-        };
-
-        info!("Sending message to WhatsApp bridge for JID: {}", jid);
-
-        let resp = self.http_client.post(&url).json(&payload).send().await?;
-
-        if resp.status().is_success() {
-            let body: SendResponse = resp.json().await?;
-            if body.ok {
-                info!("Message delivered to WhatsApp bridge successfully");
-                Ok(())
-            } else {
-                let err_msg = body.error.unwrap_or_else(|| "Unknown error".to_string());
-                error!("WhatsApp bridge returned error: {}", err_msg);
-                Err(anyhow::anyhow!("Bridge error: {}", err_msg))
+    /// Send a text message to a WhatsApp JID directly.
+    pub async fn send_message(&self, jid_str: &str, text: &str) -> Result<()> {
+        let client_guard = self.client_state.read().await;
+        
+        match client_guard.as_ref() {
+            Some(client) => {
+                let jid = jid_str.parse().map_err(|e| anyhow::anyhow!("Invalid JID {}: {}", jid_str, e))?;
+                
+                let wa_msg = wa::Message {
+                    conversation: Some(text.to_string()),
+                    ..Default::default()
+                };
+                
+                info!("Sending direct WhatsApp message to JID: {}", jid_str);
+                
+                match client.send_message(jid, wa_msg).await {
+                    Ok(_) => {
+                        info!("WhatsApp message delivered successfully");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        error!("Failed to send WhatsApp message to {}: {}", jid_str, e);
+                        Err(anyhow::anyhow!("Send failed: {}", e))
+                    }
+                }
             }
-        } else {
-            let status = resp.status();
-            error!("WhatsApp bridge HTTP error: {}", status);
-            Err(anyhow::anyhow!("Bridge HTTP error: {}", status))
+            None => {
+                warn!("WhatsApp client not yet connected. Cannot send message.");
+                Err(anyhow::anyhow!("WhatsApp client not connected"))
+            }
         }
     }
 
-    /// Check if the bridge is healthy.
+    /// Health check (check if client is connected).
     pub async fn health_check(&self) -> bool {
-        let url = format!("{}/health", self.bridge_url);
-        match self.http_client.get(&url).send().await {
-            Ok(resp) => resp.status().is_success(),
-            Err(_) => false,
-        }
+        let client_guard = self.client_state.read().await;
+        client_guard.is_some()
     }
 }
