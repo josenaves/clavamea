@@ -16,9 +16,6 @@ services:
       - LOCALES_DIR=/app/locales
       # WhatsApp integration (integrated)
       - ENABLE_WHATSAPP=true
-      - WHATSAPP_DB_PATH=/app/data/whatsapp.db
-    ports:
-      - "8081:8081"
 
   watchtower:
     image: containrrr/watchtower
