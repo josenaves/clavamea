@@ -23,12 +23,14 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Pre-cache dependencies
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
+ENV RUSTFLAGS="-C target-feature=-avx2,-fma"
 RUN cargo build --release
 RUN rm -f target/release/deps/clavamea*
 
 # Copy source and build actual binary
 COPY . .
 ENV SQLX_OFFLINE=true
+ENV RUSTFLAGS="-C target-feature=-avx2,-fma"
 RUN cargo build --release
 
 # Runtime Stage
