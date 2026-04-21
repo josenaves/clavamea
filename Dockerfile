@@ -27,6 +27,7 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 ENV RUSTFLAGS="-C target-cpu=x86-64-v2 -C target-feature=+avx,-avx2,-fma"
 ENV ORT_STRATEGY=compile
+ENV ORT_EXT_CMAKE_FLAGS="-DONNXRUNTIME_DISABLE_AVX2=ON"
 RUN cargo build --release
 RUN rm -f target/release/deps/clavamea*
 
@@ -35,6 +36,7 @@ COPY . .
 ENV SQLX_OFFLINE=true
 ENV RUSTFLAGS="-C target-cpu=x86-64-v2 -C target-feature=+avx,-avx2,-fma"
 ENV ORT_STRATEGY=compile
+ENV ORT_EXT_CMAKE_FLAGS="-DONNXRUNTIME_DISABLE_AVX2=ON"
 RUN cargo build --release
 
 # Runtime Stage
