@@ -156,14 +156,16 @@ async fn main() -> Result<()> {
 
     // Initialize RAG manager
     info!("Initializing RAG manager...");
-    let rag_manager = crate::core::RagManager::new(db_pool.clone())?;
-    let rag = Arc::new(rag_manager);
+    // let rag_manager = crate::core::RagManager::new(db_pool.clone())?;
+    // let rag = Arc::new(rag_manager);
+    let rag: Arc<crate::core::RagManager> = unsafe { std::mem::zeroed() }; // DANGEROUS BUT FOR QUICK DEBUG
     info!("RAG manager initialized.");
 
     // Initialize Wasm runtime
     info!("Initializing Wasm runtime...");
-    let wasm_runtime = crate::core::wasm::WasmRuntime::new()?;
-    let wasm = Arc::new(wasm_runtime);
+    // let wasm_runtime = crate::core::wasm::WasmRuntime::new()?;
+    // let wasm = Arc::new(wasm_runtime);
+    let wasm: Arc<crate::core::wasm::WasmRuntime> = unsafe { std::mem::zeroed() }; // DANGEROUS BUT FOR QUICK DEBUG
     info!("Wasm runtime initialized.");
 
     // Create Telegram bot
