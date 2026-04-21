@@ -8,7 +8,7 @@ use tracing::{error, info};
 
 use crate::bot::state::AppState;
 use crate::core::{
-    ConversationMemory, LLMResponse, Message as MemoryMessage, Tool, get_available_tools,
+    get_available_tools, ConversationMemory, LLMResponse, Message as MemoryMessage, Tool,
 };
 use crate::db::models::User;
 use crate::whatsapp::sender::WhatsAppSender;
@@ -64,9 +64,10 @@ impl WhatsAppProcessor {
         };
 
         // ── Access Control (same as Telegram) ──────────────────────────────
-        let user_record: Option<User> = crate::db::queries::get_user(&self.app_state.db_pool, user_id)
-            .await
-            .unwrap_or(None);
+        let user_record: Option<User> =
+            crate::db::queries::get_user(&self.app_state.db_pool, user_id)
+                .await
+                .unwrap_or(None);
 
         let is_authorized = match user_record {
             Some(ref u) => u.authorized,
@@ -91,7 +92,8 @@ impl WhatsAppProcessor {
 
                 let renderer = crate::core::renderer::TelegramMarkdownV2Renderer::new();
                 let rendered_admin = crate::core::Renderer::render(&renderer, &admin_msg);
-                let _ = self.app_state
+                let _ = self
+                    .app_state
                     .bot
                     .send_message(owner_chat_id, rendered_admin)
                     .parse_mode(teloxide::types::ParseMode::MarkdownV2)
@@ -128,7 +130,8 @@ impl WhatsAppProcessor {
         tokio::spawn(async move {
             if let Err(e) = this.process_core(user_id, &jid, &text).await {
                 error!("Error processing WhatsApp message: {}", e);
-                let _ = this.sender
+                let _ = this
+                    .sender
                     .send_message(&jid, "Desculpe, ocorreu um erro ao processar sua mensagem.")
                     .await;
             }
@@ -136,17 +139,13 @@ impl WhatsAppProcessor {
     }
 
     /// Internal core processing loop.
-    async fn process_core(
-        &self,
-        user_id: i64,
-        jid: &str,
-        text: &str,
-    ) -> anyhow::Result<()> {
+    async fn process_core(&self, user_id: i64, jid: &str, text: &str) -> anyhow::Result<()> {
         let chat_id = user_id; // Use phone number as chat_id for DB interactions
         let lang = "en";
 
         // Insert user interaction into DB
-        let user_interaction = crate::db::models::NewInteraction::user(chat_id, text.to_string(), lang);
+        let user_interaction =
+            crate::db::models::NewInteraction::user(chat_id, text.to_string(), lang);
         if let Err(e) =
             crate::db::queries::insert_interaction(&self.app_state.db_pool, &user_interaction).await
         {
@@ -176,7 +175,8 @@ impl WhatsAppProcessor {
 
         loop {
             if turn >= max_turns {
-                let _ = self.sender
+                let _ = self
+                    .sender
                     .send_message(
                         jid,
                         "Atingi o limite máximo de raciocínio para esta conversa.",
@@ -185,15 +185,19 @@ impl WhatsAppProcessor {
                 break;
             }
 
-            match self.app_state
+            match self
+                .app_state
                 .engine
                 .generate(user_id, &memory, &tools, lang)
                 .await
             {
                 Ok(LLMResponse::Text(content)) => {
                     // Save assistant interaction
-                    let assistant_interaction =
-                        crate::db::models::NewInteraction::assistant(chat_id, content.clone(), lang);
+                    let assistant_interaction = crate::db::models::NewInteraction::assistant(
+                        chat_id,
+                        content.clone(),
+                        lang,
+                    );
                     if let Err(e) = crate::db::queries::insert_interaction(
                         &self.app_state.db_pool,
                         &assistant_interaction,
@@ -269,7 +273,8 @@ impl WhatsAppProcessor {
                 }
                 Err(e) => {
                     error!("WhatsApp engine error: {}", e);
-                    let _ = self.sender
+                    let _ = self
+                        .sender
                         .send_message(jid, "Desculpe, ocorreu um erro ao gerar a resposta.")
                         .await;
                     break;

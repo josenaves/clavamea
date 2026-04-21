@@ -200,9 +200,11 @@ async fn main() -> Result<()> {
     if enable_whatsapp {
         // WhatsApp Manager handles the background bot loop
         let processor_sender_state = Arc::new(tokio::sync::RwLock::new(None));
-        let wa_sender = crate::whatsapp::sender::WhatsAppSender::new(processor_sender_state.clone());
-        let wa_processor = crate::whatsapp::processor::WhatsAppProcessor::new(state.clone(), wa_sender);
-        
+        let wa_sender =
+            crate::whatsapp::sender::WhatsAppSender::new(processor_sender_state.clone());
+        let wa_processor =
+            crate::whatsapp::processor::WhatsAppProcessor::new(state.clone(), wa_sender);
+
         let wa_manager = crate::whatsapp::manager::WhatsAppManager {
             db_pool: db_pool.clone(),
             client: processor_sender_state,

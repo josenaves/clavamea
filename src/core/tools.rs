@@ -1,7 +1,7 @@
 use crate::core::storage::MemoryStorage;
 use crate::db::connection::Pool;
 use crate::db::models::{Interaction, NewInteraction};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1895,12 +1895,10 @@ mod tests {
             .await?;
 
         assert!(resolved.exists());
-        assert!(
-            resolved
-                .to_str()
-                .unwrap()
-                .contains("memory/123456/recipes/lasanha.md")
-        );
+        assert!(resolved
+            .to_str()
+            .unwrap()
+            .contains("memory/123456/recipes/lasanha.md"));
 
         // Restore directory
         std::env::set_current_dir(original_dir)?;

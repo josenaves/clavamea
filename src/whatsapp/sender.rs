@@ -1,8 +1,8 @@
 //! Client for sending messages directly via the local WhatsApp service.
 
+use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::Result;
 use tracing::{error, info, warn};
 
 // Import necessary waproto types from whatsapp-rust
@@ -24,18 +24,20 @@ impl WhatsAppSender {
     /// Send a text message to a WhatsApp JID directly.
     pub async fn send_message(&self, jid_str: &str, text: &str) -> Result<()> {
         let client_guard = self.client_state.read().await;
-        
+
         match client_guard.as_ref() {
             Some(client) => {
-                let jid = jid_str.parse().map_err(|e| anyhow::anyhow!("Invalid JID {}: {}", jid_str, e))?;
-                
+                let jid = jid_str
+                    .parse()
+                    .map_err(|e| anyhow::anyhow!("Invalid JID {}: {}", jid_str, e))?;
+
                 let wa_msg = wa::Message {
                     conversation: Some(text.to_string()),
                     ..Default::default()
                 };
-                
+
                 info!("Sending direct WhatsApp message to JID: {}", jid_str);
-                
+
                 match client.send_message(jid, wa_msg).await {
                     Ok(_) => {
                         info!("WhatsApp message delivered successfully");

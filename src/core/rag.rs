@@ -1,7 +1,7 @@
 //! Local Retrieval-Augmented Generation (RAG) system.
 
-use crate::db::Pool;
 use crate::db::models::DocumentChunk;
+use crate::db::Pool;
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use std::sync::{Arc, Mutex};
@@ -40,7 +40,9 @@ impl RagManager {
         let chunks = self.chunk_text(content, 500, 50);
 
         // 2. Generate embeddings for all chunks
-        let embeddings = self.embedding_model.lock()
+        let embeddings = self
+            .embedding_model
+            .lock()
             .map_err(|e| anyhow::anyhow!("Mutex error: {}", e))?
             .embed(chunks.clone(), None)?;
 
@@ -85,7 +87,9 @@ impl RagManager {
     /// Search for relevant document chunks based on a query for a specific user.
     pub async fn search(&self, user_id: i64, query: &str, limit: usize) -> Result<Vec<String>> {
         // 1. Embed the query
-        let query_embedding_vec = self.embedding_model.lock()
+        let query_embedding_vec = self
+            .embedding_model
+            .lock()
             .map_err(|e| anyhow::anyhow!("Mutex error: {}", e))?
             .embed(vec![query], None)?;
         let query_embedding = &query_embedding_vec[0];

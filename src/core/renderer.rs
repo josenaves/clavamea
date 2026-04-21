@@ -204,8 +204,8 @@ mod tests {
         assert_eq!(renderer.render("1.5.0"), "1\\.5\\.0");
 
         // Bold and Italic
-        assert_eq!(renderer.render("**Bold**"), "*Bold*"); // pulldown-cmark Normalizes to single * for strong in some cases? 
-        // Actually pulldown-cmark uses Tag::Strong for both ** and __. Telegram uses * for strong and _ for emphasis.
+        assert_eq!(renderer.render("**Bold**"), "*Bold*"); // pulldown-cmark Normalizes to single * for strong in some cases?
+                                                           // Actually pulldown-cmark uses Tag::Strong for both ** and __. Telegram uses * for strong and _ for emphasis.
 
         // Code
         assert_eq!(renderer.render("`code`"), "`code`");

@@ -1,8 +1,8 @@
 //! Message routing and command dispatch.
 
-use teloxide::RequestError;
 use teloxide::dispatching::{UpdateFilterExt, UpdateHandler};
 use teloxide::prelude::*;
+use teloxide::RequestError;
 
 use super::handlers;
 

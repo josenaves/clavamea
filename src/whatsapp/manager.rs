@@ -8,13 +8,13 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use whatsapp_rust::bot::{Bot, MessageContext};
+use whatsapp_rust::proto_helpers::MessageExt;
+use whatsapp_rust::types::events::Event;
 use whatsapp_rust::TokioRuntime;
 use whatsapp_rust_tokio_transport::TokioWebSocketTransportFactory;
 use whatsapp_rust_ureq_http_client::UreqHttpClient;
-use whatsapp_rust::types::events::Event;
-use whatsapp_rust::proto_helpers::MessageExt;
 
-use crate::whatsapp::processor::{WhatsAppProcessor, WhatsAppMessagePayload};
+use crate::whatsapp::processor::{WhatsAppMessagePayload, WhatsAppProcessor};
 use crate::whatsapp::store::SqlxWhatsAppStore;
 
 /// Manages the WhatsApp bot connection and events.
@@ -43,7 +43,7 @@ impl WhatsAppManager {
         // Initialize our custom SQLx-based store
         let wa_store = SqlxWhatsAppStore::new(self.db_pool.clone());
         wa_store.init().await?;
-        
+
         let backend = Arc::new(wa_store);
 
         // Clone for the event handler
@@ -97,7 +97,10 @@ impl WhatsAppManager {
                             let text = match ctx.message.text_content() {
                                 Some(t) => t.to_string(),
                                 None => {
-                                    info!("Ignoring non-text message from WhatsApp: {}", sender_jid);
+                                    info!(
+                                        "Ignoring non-text message from WhatsApp: {}",
+                                        sender_jid
+                                    );
                                     return;
                                 }
                             };
@@ -128,7 +131,7 @@ impl WhatsAppManager {
 
         info!("Starting integrated WhatsApp bot event loop...");
         let bot_handle = bot.run().await?;
-        
+
         // Wait for the bot handle (it runs indefinitely)
         bot_handle.await?;
 

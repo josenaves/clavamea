@@ -4,8 +4,8 @@
 
 use anyhow::{Context, Result};
 use wasmtime::*;
-use wasmtime_wasi::preview1::{WasiP1Ctx, add_to_linker_sync};
-use wasmtime_wasi::{WasiCtxBuilder, pipe::MemoryOutputPipe};
+use wasmtime_wasi::preview1::{add_to_linker_sync, WasiP1Ctx};
+use wasmtime_wasi::{pipe::MemoryOutputPipe, WasiCtxBuilder};
 
 /// Represents the state for a single Wasm execution.
 struct WasmState {

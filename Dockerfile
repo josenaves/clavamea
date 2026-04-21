@@ -1,9 +1,26 @@
 # Build Stage
-FROM rust:bookworm AS builder
+FROM ubuntu:24.04 AS builder
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /usr/src/clavamea
 
-# Pre-cache dependencies (optional but speeds up builds)
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    libsqlite3-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Pre-cache dependencies
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
@@ -15,11 +32,14 @@ ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
 # Runtime Stage
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libsqlite3-0 \
+    libssl3 \
     git \
     && rm -rf /var/lib/apt/lists/*
 
