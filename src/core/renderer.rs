@@ -220,4 +220,102 @@ mod tests {
             "[Link](https://example.com)"
         );
     }
+
+    #[test]
+    fn test_markdown_v2_escapes_all_reserved_chars_in_plain_text() {
+        let renderer = TelegramMarkdownV2Renderer::new();
+
+        // Characters reserved by Telegram MarkdownV2 that appear as plain text
+        // (not consumed by pulldown-cmark as markdown syntax):
+        //   ! . - ( ) + = | { }
+        let input = concat!(
+            "test! and 1.0 and minus-sign and ",
+            "(parens) and +plus+ and =eq= and |pipe| and {braces}"
+        );
+        let rendered = renderer.render(input);
+        assert!(
+            rendered.contains("test\\!"),
+            "! must be escaped, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("1\\.0"),
+            ". must be escaped, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\-sign"),
+            "- must be escaped, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\(parens\\)"),
+            "( ) must be escaped, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\+plus\\+"),
+            "+ must be escaped, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\=eq\\="),
+            "= must be escaped, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\|pipe\\|"),
+            "| must be escaped, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("\\{braces\\}"),
+            "{{ }} must be escaped, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn test_html_renderer_does_not_escape_markdown_v2_chars() {
+        // TelegramRenderer outputs HTML but send_chunked_message sends with
+        // MarkdownV2 parse mode. This test documents the mismatch: the HTML
+        // renderer does NOT escape ! and other MarkdownV2 reserved chars.
+        let html_renderer = TelegramRenderer::new();
+        let html = html_renderer.render("Alerta! Importante.");
+
+        // HTML renderer should NOT escape ! — it's not an HTML special char.
+        assert!(
+            html.contains("Alerta!"),
+            "HTML renderer should not escape !; got: {html}"
+        );
+        // HTML renderer should NOT backslash-escape . either.
+        assert!(
+            !html.contains("\\."),
+            "HTML renderer should not backslash-escape .; got: {html}"
+        );
+    }
+
+    #[test]
+    fn test_real_reminder_message_with_exclamation() {
+        let renderer = TelegramMarkdownV2Renderer::new();
+
+        // Simulate a real reminder the bot might construct.
+        let input = "Lembrete -- você pediu para ser notificado! Veja mais em https://exemplo.com";
+        let rendered = renderer.render(&input);
+
+        // Must escape the !
+        assert!(
+            rendered.contains("notificado\\!"),
+            "! must be escaped in reminder output: {rendered}"
+        );
+        // Must escape the .
+        assert!(
+            rendered.contains("exemplo\\.com"),
+            ". must be escaped in URL text: {rendered}"
+        );
+        // Must escape the -
+        assert!(
+            rendered.contains("\\-\\-"),
+            "-- must be escaped: {rendered}"
+        );
+        // Output must NOT contain raw unescaped !
+        let exclamation_count = rendered.matches('!').count();
+        let escaped_exclamation = rendered.matches("\\!").count();
+        assert_eq!(
+            exclamation_count, escaped_exclamation,
+            "Every ! must be escaped, got raw: {rendered}"
+        );
+    }
 }

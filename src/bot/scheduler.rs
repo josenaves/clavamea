@@ -115,7 +115,7 @@ async fn execute_bovespa_clipping(state: AppState, user_id: i64) -> anyhow::Resu
 
     match response {
         crate::core::LLMResponse::Text(text) => {
-            let renderer = crate::core::renderer::TelegramRenderer::new();
+            let renderer = crate::core::renderer::TelegramMarkdownV2Renderer::new();
             let rendered = renderer.render(&text);
 
             crate::bot::utils::send_chunked_message(
@@ -146,7 +146,7 @@ async fn execute_reminder(
         payload.unwrap_or_else(|| "Você tem um lembrete agendado para agora.".to_string());
 
     // We can assume the text might have markdown or we just render it.
-    let renderer = crate::core::renderer::TelegramRenderer::new();
+    let renderer = crate::core::renderer::TelegramMarkdownV2Renderer::new();
     let rendered = renderer.render(&message);
 
     crate::bot::utils::send_chunked_message(

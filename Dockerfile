@@ -1,6 +1,9 @@
 # Build Stage
 FROM rust:bookworm AS builder
 
+ARG APP_VERSION=1.8.1
+LABEL version="${APP_VERSION}"
+
 WORKDIR /usr/src/clavamea
 
 # Pre-cache dependencies (optional but speeds up builds)
