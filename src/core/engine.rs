@@ -43,9 +43,8 @@ impl Engine {
     }
     /// Create a new engine with the given configuration.
     pub fn new(config: EngineConfig) -> Result<Self> {
-        let timeout_secs = if config.router.is_some() { 30 } else { 60 };
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .timeout(std::time::Duration::from_secs(60))
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()?;
         let storage = config.storage.clone();
@@ -167,16 +166,22 @@ impl Engine {
             }
         }
 
-        // Make API request with fallback on 429
+        // Make API request with fallback on 429 + exponential backoff
         let res = if let Some(router_config) = &self.config.router {
             let models = &router_config.models;
             let mut result_res: Option<reqwest::Response> = None;
+            let base_timeout = std::time::Duration::from_secs(15);
 
             for (i, model_attempt) in models.iter().enumerate() {
                 payload["model"] = serde_json::json!(model_attempt);
 
-                let res = self
-                    .client
+                let attempt_timeout = base_timeout * 2u32.pow(i as u32);
+                let client = reqwest::Client::builder()
+                    .timeout(attempt_timeout)
+                    .connect_timeout(std::time::Duration::from_secs(10))
+                    .build()?;
+
+                let res = client
                     .post(&endpoint)
                     .bearer_auth(&api_key)
                     .json(&payload)
