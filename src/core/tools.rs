@@ -759,7 +759,11 @@ impl Tool {
 
                 match language {
                     "wat" => {
-                        let result = wasm.execute_wat(code)?;
+                        let code = code.to_string();
+                        let wasm = wasm.clone();
+                        let result = tokio::task::spawn_blocking(move || wasm.execute_wat(&code))
+                            .await
+                            .map_err(|e| anyhow!("Wasm execution task panicked: {}", e))??;
                         if result.is_empty() {
                             Ok("Code executed successfully, but produced no output.".to_string())
                         } else {
@@ -1419,6 +1423,7 @@ impl Tool {
 
     /// Validates a path against security constraints.
     /// Allows paths within the project or paths starting with AUTHORIZED PATHS (from env or chat).
+    /// If DISABLE_PATH_SANDBOX=true is set, all path restrictions are bypassed.
     #[allow(clippy::too_many_arguments)]
     async fn validate_path(
         &self,
@@ -1427,6 +1432,11 @@ impl Tool {
         allow_non_existent: bool,
         allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
     ) -> Result<std::path::PathBuf> {
+        // Check if sandbox is disabled globally
+        let sandbox_disabled = std::env::var("DISABLE_PATH_SANDBOX")
+            .map(|v| v.to_lowercase() == "true" || v == "1")
+            .unwrap_or(false);
+
         let path = std::path::Path::new(path_str);
         let base_path = std::env::current_dir()?;
 
@@ -1444,6 +1454,14 @@ impl Tool {
         } else {
             absolute_path
         };
+
+        // If sandbox is disabled, return the resolved path immediately
+        if sandbox_disabled {
+            if !allow_non_existent && !target_path.exists() {
+                return Err(anyhow!("Path does not exist: {}", path_str));
+            }
+            return Ok(target_path);
+        }
 
         // Canonicalize if it exists
         let canonical_target = if target_path.exists() {
