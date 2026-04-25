@@ -55,6 +55,8 @@ async fn main() -> Result<()> {
     let llm_api_url = env::var("LLM_API_URL").ok();
     let llm_api_key = env::var("LLM_API_KEY").ok();
     let llm_model = env::var("LLM_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
+    let llm_model_pro = env::var("LLM_MODEL_PRO").ok();
+    let llm_model_flash = env::var("LLM_MODEL_FLASH").ok();
     let llm_max_tokens = env::var("LLM_MAX_TOKENS")
         .unwrap_or_else(|_| "4096".to_string())
         .parse::<u32>()
@@ -112,6 +114,8 @@ async fn main() -> Result<()> {
             api_url,
             api_key,
             model: llm_model,
+            model_pro: llm_model_pro.clone(),
+            model_flash: llm_model_flash.clone(),
             max_tokens: llm_max_tokens,
             temperature: llm_temperature,
             storage: storage.clone(),
@@ -129,6 +133,8 @@ async fn main() -> Result<()> {
                         api_url: "placeholder".to_string(),
                         api_key: "placeholder".to_string(),
                         model: "placeholder".to_string(),
+                        model_pro: None,
+                        model_flash: None,
                         max_tokens: 4096,
                         temperature: 0.7,
                         storage: storage.clone(),
@@ -145,6 +151,8 @@ async fn main() -> Result<()> {
                 api_url: "placeholder".to_string(),
                 api_key: "placeholder".to_string(),
                 model: "placeholder".to_string(),
+                model_pro: None,
+                model_flash: None,
                 max_tokens: 4096,
                 temperature: 0.7,
                 storage,

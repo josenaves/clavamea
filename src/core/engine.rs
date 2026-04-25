@@ -18,6 +18,8 @@ pub struct EngineConfig {
     pub api_url: String,
     pub api_key: String,
     pub model: String,
+    pub model_pro: Option<String>,
+    pub model_flash: Option<String>,
     pub max_tokens: u32,
     pub temperature: f32,
     pub storage: Arc<MemoryStorage>,
@@ -33,6 +35,10 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Access the engine configuration (for model routing).
+    pub fn config(&self) -> &EngineConfig {
+        &self.config
+    }
     /// Create a new engine with the given configuration.
     pub fn new(config: EngineConfig) -> Result<Self> {
         let client = reqwest::Client::builder()
@@ -50,6 +56,7 @@ impl Engine {
     }
 
     /// Generate a response based on conversation history and optional tools for a specific user.
+    /// `model_override` allows using a different model per call (e.g. pro for turn 0, flash for follow-ups).
     pub async fn generate(
         &self,
         user_id: i64,
@@ -57,6 +64,7 @@ impl Engine {
         tools: &[Tool],
         _lang: &str,
         user_timezone: Option<&str>,
+        model_override: Option<&str>,
     ) -> Result<LLMResponse> {
         let memory_context = self.storage.build_context_string(user_id);
         let current_time = chrono::Local::now()
@@ -109,8 +117,10 @@ impl Engine {
         })];
         msgs.extend(memory.to_api_messages());
 
+        let model = model_override.unwrap_or(&self.config.model).to_string();
+
         let mut payload = serde_json::json!({
-            "model": self.config.model,
+            "model": model,
             "messages": msgs,
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,

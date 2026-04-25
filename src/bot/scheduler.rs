@@ -113,7 +113,7 @@ async fn execute_bovespa_clipping(
 
     let response = state
         .engine
-        .generate(user_id, &memory, &tools, "pt", None)
+        .generate(user_id, &memory, &tools, "pt", None, None)
         .await?;
 
     match response {

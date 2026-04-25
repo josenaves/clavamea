@@ -290,6 +290,16 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
             }
 
             tracing::info!("Calling LLM for user {} (turn {})", user_id, turn);
+            let model_override = if turn == 0 && !tools.is_empty() {
+                state.engine.config().model_pro.as_deref()
+            } else if !tools.is_empty() {
+                state.engine.config().model_flash.as_deref()
+            } else {
+                None
+            };
+            if let Some(m) = model_override {
+                tracing::info!("  using model override: {}", m);
+            }
             match state
                 .engine
                 .generate(
@@ -298,6 +308,7 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
                     &tools,
                     lang,
                     user_record.as_ref().and_then(|u| u.timezone.as_deref()),
+                    model_override,
                 )
                 .await
             {

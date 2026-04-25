@@ -240,10 +240,25 @@ async fn process_whatsapp_message(
             break;
         }
 
+        let model_override = if turn == 0 && !tools.is_empty() {
+            state.app_state.engine.config().model_pro.as_deref()
+        } else if !tools.is_empty() {
+            state.app_state.engine.config().model_flash.as_deref()
+        } else {
+            None
+        };
+
         match state
             .app_state
             .engine
-            .generate(user_id, &memory, &tools, lang, user_tz.as_deref())
+            .generate(
+                user_id,
+                &memory,
+                &tools,
+                lang,
+                user_tz.as_deref(),
+                model_override,
+            )
             .await
         {
             Ok(LLMResponse::Text(content)) => {
