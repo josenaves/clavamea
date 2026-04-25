@@ -126,7 +126,13 @@ impl Engine {
                     .sum::<usize>();
                 let tool_count = tools.len();
                 let request_type = crate::core::router::analyze_request(prompt_len, tool_count, 0);
-                router_config.select_model(request_type).to_string()
+                let selected = router_config.select_model(request_type).to_string();
+                tracing::info!(
+                    "Using router model: {} (request_type: {:?})",
+                    selected,
+                    request_type
+                );
+                selected
             }
         } else {
             model_override.unwrap_or(&self.config.model).to_string()
@@ -175,6 +181,12 @@ impl Engine {
 
             for (i, model_attempt) in models.iter().enumerate() {
                 payload["model"] = serde_json::json!(model_attempt);
+                tracing::info!(
+                    "Trying model: {} (attempt {}/{})",
+                    model_attempt,
+                    i + 1,
+                    models.len()
+                );
 
                 let attempt_timeout = base_timeout * 2u32.pow(i as u32);
                 let client = reqwest::Client::builder()
