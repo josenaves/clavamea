@@ -124,6 +124,7 @@ impl Engine {
             "messages": msgs,
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
+            "thinking": { "type": "disabled" },
         });
 
         // Add tools if available
