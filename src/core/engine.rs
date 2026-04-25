@@ -220,7 +220,26 @@ impl Engine {
                     }
                 }
 
-                if !res.status().is_success() {
+                // Also fallback on 4xx errors (bad request, etc)
+                if res.status().is_client_error() {
+                    let status = res.status();
+                    let _text = res.text().await.unwrap_or_default();
+                    tracing::error!(
+                        "Client error {} on model {}, trying next",
+                        status,
+                        model_attempt
+                    );
+                    if let Some(router_config) = &self.config.router {
+                        router_config.blacklist_model(model_attempt);
+                    }
+                    if i + 1 < models.len() {
+                        continue;
+                    } else {
+                        return Err(anyhow::anyhow!("All models failed with client errors"));
+                    }
+                }
+
+                if !res.status().is_success() && !res.status().is_client_error() {
                     let status = res.status();
                     let text = res.text().await.unwrap_or_default();
                     tracing::error!("LLM API error {}: {}", status, text);
