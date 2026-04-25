@@ -141,8 +141,18 @@ impl Engine {
             payload["tools"] = serde_json::json!(tool_definitions);
         }
 
-        // The URL should be built properly. If it doesn't end in /chat/completions, append it.
-        let mut endpoint = self.config.api_url.clone();
+        // Determine API endpoint and key based on router configuration
+        let (api_url, api_key) = if let Some(router_config) = &self.config.router {
+            (
+                "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                router_config.api_key.clone(),
+            )
+        } else {
+            (self.config.api_url.clone(), self.config.api_key.clone())
+        };
+
+        // Build endpoint URL
+        let mut endpoint = api_url.clone();
         if !endpoint.ends_with("/chat/completions") {
             if endpoint.ends_with("/") {
                 endpoint.push_str("chat/completions");
@@ -151,20 +161,52 @@ impl Engine {
             }
         }
 
-        let res = self
-            .client
-            .post(&endpoint)
-            .bearer_auth(&self.config.api_key)
-            .json(&payload)
-            .send()
-            .await?;
+        // Make API request with fallback on 429
+        let res = if let Some(router_config) = &self.config.router {
+            let models = &router_config.models;
+            let mut last_error = None;
+            let mut result_res: Option<reqwest::Response> = None;
 
-        if !res.status().is_success() {
-            let status = res.status();
-            let text = res.text().await.unwrap_or_default();
-            tracing::error!("LLM API error {}: {}", status, text);
-            return Err(anyhow::anyhow!("LLM API error {}: {}", status, text));
-        }
+            for (i, model_attempt) in models.iter().enumerate() {
+                payload["model"] = serde_json::json!(model_attempt);
+
+                let res = self
+                    .client
+                    .post(&endpoint)
+                    .bearer_auth(&api_key)
+                    .json(&payload)
+                    .send()
+                    .await?;
+
+                if res.status() == 429 {
+                    tracing::warn!("Rate limited on model {}, trying next", model_attempt);
+                    last_error = Some(format!("Rate limited on model {}", model_attempt));
+                    if i + 1 < models.len() {
+                        continue;
+                    } else {
+                        return Err(anyhow::anyhow!("Rate limited on all models: {}", last_error.unwrap_or_default()));
+                    }
+                }
+
+                if !res.status().is_success() {
+                    let status = res.status();
+                    let text = res.text().await.unwrap_or_default();
+                    tracing::error!("LLM API error {}: {}", status, text);
+                    return Err(anyhow::anyhow!("LLM API error {}: {}", status, text));
+                }
+
+                result_res = Some(res);
+                break;
+            }
+            result_res.unwrap()
+        } else {
+            self.client
+                .post(&endpoint)
+                .bearer_auth(&api_key)
+                .json(&payload)
+                .send()
+                .await?
+        };
 
         let data: Value = res.json().await?;
         let message = &data["choices"][0]["message"];
