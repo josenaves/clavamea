@@ -35,6 +35,16 @@ impl RouterConfig {
     }
 }
 
+pub fn analyze_request(prompt_len: usize, tool_count: usize, turn: usize) -> RequestType {
+    if turn == 0 {
+        return RequestType::Complex;
+    }
+    if prompt_len > 500 || tool_count > 0 {
+        return RequestType::Complex;
+    }
+    RequestType::Simple
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,5 +67,25 @@ mod tests {
             timeout: 60,
         };
         assert_eq!(config.select_model(RequestType::Simple), "model-b");
+    }
+
+    #[test]
+    fn test_analyze_first_turn() {
+        assert_eq!(analyze_request(100, 0, 0), RequestType::Complex);
+    }
+
+    #[test]
+    fn test_analyze_long_prompt() {
+        assert_eq!(analyze_request(600, 0, 1), RequestType::Complex);
+    }
+
+    #[test]
+    fn test_analyze_with_tools() {
+        assert_eq!(analyze_request(50, 1, 1), RequestType::Complex);
+    }
+
+    #[test]
+    fn test_analyze_simple() {
+        assert_eq!(analyze_request(50, 0, 1), RequestType::Simple);
     }
 }
