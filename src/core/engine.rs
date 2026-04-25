@@ -126,13 +126,22 @@ impl Engine {
                     .sum::<usize>();
                 let tool_count = tools.len();
                 let request_type = crate::core::router::analyze_request(prompt_len, tool_count, 0);
-                let selected = router_config.select_model(request_type).to_string();
-                tracing::info!(
-                    "Using router model: {} (request_type: {:?})",
-                    selected,
-                    request_type
-                );
-                selected
+                match router_config.select_model(request_type) {
+                    Some(selected) => {
+                        tracing::info!(
+                            "Using router model: {} (request_type: {:?})",
+                            selected,
+                            request_type
+                        );
+                        selected
+                    }
+                    None => {
+                        tracing::error!("No available models - all blacklisted");
+                        return Err(anyhow::anyhow!(
+                            "All models are temporarily unavailable. Try again later."
+                        ));
+                    }
+                }
             }
         } else {
             model_override.unwrap_or(&self.config.model).to_string()
@@ -234,7 +243,21 @@ impl Engine {
         let res_text = res.text().await.unwrap_or_default();
         tracing::debug!("LLM raw response: {}", res_text);
 
+        // Check for empty response
+        if res_text.is_empty() {
+            if let Some(router_config) = &self.config.router {
+                tracing::error!("Empty response from {}, blacklisting for 15 min", model);
+                router_config.blacklist_model(&model);
+            }
+            return Err(anyhow::anyhow!("Empty response from model"));
+        }
+
         let data: Value = serde_json::from_str(&res_text).map_err(|e| {
+            // Blacklist on parse error
+            if let Some(router_config) = &self.config.router {
+                tracing::error!("Parse error from {}, blacklisting for 15 min: {}", model, e);
+                router_config.blacklist_model(&model);
+            }
             anyhow::anyhow!("Failed to parse LLM response: {} | body: {}", e, res_text)
         })?;
         let message = &data["choices"][0]["message"];

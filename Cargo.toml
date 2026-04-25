@@ -1,6 +1,6 @@
 [package]
 name = "clavamea"
-version = "1.9.0"
+version = "1.9.2"
 edition = "2024"
 authors = ["Your Name <your.email@example.com>"]
 description = "Sovereign, private AI assistant with Telegram interface"
