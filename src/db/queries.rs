@@ -360,7 +360,23 @@ pub async fn get_due_schedules(
             let target_date = parts[0];
             let target_time = parts[1];
 
-            if target_date == today && target_time == time_str {
+            if target_date != today {
+                continue;
+            }
+
+            // Exact match: fire at the exact minute
+            if target_time == time_str {
+                due.push(s);
+                continue;
+            }
+
+            // Overdue: fire if the target time has passed and not yet run today
+            if target_time <= time_str {
+                if let Some(last) = &s.last_run {
+                    if last.starts_with(&today) {
+                        continue;
+                    }
+                }
                 due.push(s);
             }
             continue;
@@ -552,11 +568,15 @@ mod tests {
         assert_eq!(due_onetime.len(), 1);
         assert_eq!(due_onetime[0].payload.as_deref(), Some("one-time"));
 
-        // one-time does NOT fire at wrong time
-        let not_due_onetime = get_due_schedules(&pool, "11:00", "WED", "UTC")
+        // one-time also fires as overdue at a later time (same day)
+        let due_overdue = get_due_schedules(&pool, "11:00", "WED", "UTC")
             .await
             .unwrap();
-        assert_eq!(not_due_onetime.len(), 0);
+        assert_eq!(
+            due_overdue.len(),
+            1,
+            "Should fire overdue one-time reminders"
+        );
     }
 
     /// Regression: "08:00 MON-FRI" contains '-' but must NOT be treated as a one-time event.

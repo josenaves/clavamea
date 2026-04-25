@@ -106,7 +106,7 @@ impl Engine {
         if !tools.is_empty() {
             msgs.push(serde_json::json!({
                 "role": "system",
-                "content": "TOOLS ARE AVAILABLE. You MUST call the appropriate tool for any action the user requests. Do NOT reply with text claiming an action was performed — always call the tool first."
+                "content": "TOOLS ARE AVAILABLE. You MUST call the appropriate tool for any action the user requests. Do NOT reply with text claiming an action was performed — always call the tool first. After a tool succeeds, summarize the result — do NOT call more tools for the same request."
             }));
         }
 
