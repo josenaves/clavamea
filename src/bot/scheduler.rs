@@ -75,6 +75,29 @@ async fn process_due_tasks(state: &AppState, time_str: &str, weekday: &str) -> a
                     }
                 });
             }
+            "web_search" => {
+                let state_clone = state.clone();
+                let user_id = task.user_id;
+                let search_query = task.search_query.clone().unwrap_or_else(|| "".to_string());
+                let payload = task.payload.clone();
+                let schedule_id = task.id;
+                let is_one_time = is_one_time_expr(&task.cron_expr);
+
+                tokio::spawn(async move {
+                    if let Err(e) = execute_web_search(
+                        state_clone,
+                        user_id,
+                        search_query,
+                        payload,
+                        schedule_id,
+                        is_one_time,
+                    )
+                    .await
+                    {
+                        error!("Web search failed for user {}: {}", user_id, e);
+                    }
+                });
+            }
             _ => {
                 error!("Unknown task type: {}", task.task_type);
             }
@@ -362,6 +385,66 @@ async fn execute_reminder(
         if let Err(e) = crate::db::queries::delete_schedule(&pool, schedule_id).await {
             error!("Failed to delete one-time reminder {}: {}", schedule_id, e);
         }
+    }
+
+    Ok(())
+}
+
+async fn execute_web_search(
+    state: AppState,
+    user_id: i64,
+    search_query: String,
+    _message: Option<String>,
+    schedule_id: i64,
+    is_one_time: bool,
+) -> anyhow::Result<()> {
+    info!("Running web search for user {}: {}", user_id, search_query);
+
+    let tools = vec![crate::core::tools::Tool::WebSearch];
+
+    let mut memory = crate::core::memory::ConversationMemory::new(user_id, 1);
+    memory.add_message(crate::core::memory::Message {
+        role: Role::User,
+        content: Some(search_query.clone()),
+        tool_calls: None,
+        tool_call_id: None,
+    });
+
+    let response = state
+        .engine
+        .generate(user_id, &memory, &tools, "en", None, None)
+        .await?;
+
+    let text = match response {
+        crate::core::engine::LLMResponse::Text(t) => t,
+        crate::core::engine::LLMResponse::ToolCalls(_) => search_query,
+    };
+
+    let bot = state.bot.clone();
+    let pool = state.db_pool.clone();
+
+    send_with_retry(schedule_id, 3, || {
+        let text = text.clone();
+        let bot = bot.clone();
+        async move {
+            crate::bot::utils::send_chunked_message(
+                &bot,
+                teloxide::types::ChatId(user_id),
+                &text,
+            )
+            .await
+            .map_err(anyhow::Error::from)
+        }
+    })
+    .await?;
+
+    if is_one_time {
+        info!("Deleting one-time web_search task: {}", schedule_id);
+        if let Err(e) = crate::db::queries::delete_schedule(&pool, schedule_id).await {
+            error!("Failed to delete one-time web_search {}: {}", schedule_id, e);
+        }
+    } else {
+        crate::db::queries::update_schedule_last_run(&pool, schedule_id).await?;
     }
 
     Ok(())
