@@ -1,4 +1,5 @@
 use crate::core::memory::{ConversationMemory, Message, ToolCall};
+use crate::core::router::RouterConfig;
 use anyhow::Result;
 use serde_json::Value;
 
@@ -24,6 +25,7 @@ pub struct EngineConfig {
     pub temperature: f32,
     pub storage: Arc<MemoryStorage>,
     pub allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
+    pub router: Option<RouterConfig>,
 }
 
 /// Main LLM engine struct.
@@ -112,7 +114,17 @@ impl Engine {
 
         msgs.extend(memory.to_api_messages());
 
-        let model = model_override.unwrap_or(&self.config.model).to_string();
+        let model = if let Some(router_config) = &self.config.router {
+            let prompt_len = msgs.iter()
+                .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
+                .map(|s| s.len())
+                .sum::<usize>();
+            let tool_count = tools.len();
+            let request_type = crate::core::router::analyze_request(prompt_len, tool_count, 0);
+            router_config.select_model(request_type).to_string()
+        } else {
+            model_override.unwrap_or(&self.config.model).to_string()
+        };
 
         let mut payload = serde_json::json!({
             "model": model,

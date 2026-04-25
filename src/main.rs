@@ -120,6 +120,7 @@ async fn main() -> Result<()> {
             temperature: llm_temperature,
             storage: storage.clone(),
             allowed_paths: dynamic_allowed_paths.clone(),
+            router: crate::core::router::RouterConfig::from_env(),
         };
         match Engine::new(config) {
             Ok(engine) => {
@@ -139,6 +140,7 @@ async fn main() -> Result<()> {
                         temperature: 0.7,
                         storage: storage.clone(),
                         allowed_paths: dynamic_allowed_paths.clone(),
+                        router: None,
                     })
                     .expect("Failed to init placeholder engine"),
                 )
@@ -155,8 +157,9 @@ async fn main() -> Result<()> {
                 model_flash: None,
                 max_tokens: 4096,
                 temperature: 0.7,
-                storage,
-                allowed_paths: dynamic_allowed_paths,
+                storage: storage.clone(),
+                allowed_paths: dynamic_allowed_paths.clone(),
+                router: None,
             })
             .expect("Failed to init placeholder engine"),
         )
