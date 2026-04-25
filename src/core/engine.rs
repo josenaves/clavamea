@@ -43,8 +43,9 @@ impl Engine {
     }
     /// Create a new engine with the given configuration.
     pub fn new(config: EngineConfig) -> Result<Self> {
+        let timeout_secs = if config.router.is_some() { 30 } else { 60 };
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(timeout_secs))
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()?;
         let storage = config.storage.clone();
@@ -115,14 +116,18 @@ impl Engine {
         msgs.extend(memory.to_api_messages());
 
         let model = if let Some(router_config) = &self.config.router {
-            let prompt_len = msgs
-                .iter()
-                .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
-                .map(|s| s.len())
-                .sum::<usize>();
-            let tool_count = tools.len();
-            let request_type = crate::core::router::analyze_request(prompt_len, tool_count, 0);
-            router_config.select_model(request_type).to_string()
+            if model_override.is_some() {
+                model_override.unwrap_or(&self.config.model).to_string()
+            } else {
+                let prompt_len = msgs
+                    .iter()
+                    .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
+                    .map(|s| s.len())
+                    .sum::<usize>();
+                let tool_count = tools.len();
+                let request_type = crate::core::router::analyze_request(prompt_len, tool_count, 0);
+                router_config.select_model(request_type).to_string()
+            }
         } else {
             model_override.unwrap_or(&self.config.model).to_string()
         };

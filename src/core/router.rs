@@ -23,9 +23,9 @@ impl RouterConfig {
             .map(|s| s.trim().to_string())
             .collect();
         let timeout = std::env::var("OPENROUTER_TIMEOUT")
-            .unwrap_or_else(|_| "60".to_string())
+            .unwrap_or_else(|_| "30".to_string())
             .parse()
-            .unwrap_or(60);
+            .unwrap_or(30);
 
         Some(RouterConfig {
             api_key,
