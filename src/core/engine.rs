@@ -90,7 +90,7 @@ impl Engine {
             For casual conversation or questions, reply with text normally.\n\
             DO NOT use Markdown tables — use bulleted lists or bold text instead.\n\
             \n\
-            Current time: {}{}.\n\n\
+            The current time is: {}{}.\n\n\
             {}",
             current_time, tz_info, memory_context
         );
@@ -99,6 +99,17 @@ impl Engine {
             "role": "system",
             "content": system_prompt
         })];
+
+        // If tools are available, add a short tool reminder as a second system message.
+        // This sits right before the conversation history and helps override
+        // any hallucination patterns from past assistant responses.
+        if !tools.is_empty() {
+            msgs.push(serde_json::json!({
+                "role": "system",
+                "content": "TOOLS ARE AVAILABLE. You MUST call the appropriate tool for any action the user requests. Do NOT reply with text claiming an action was performed — always call the tool first."
+            }));
+        }
+
         msgs.extend(memory.to_api_messages());
 
         let model = model_override.unwrap_or(&self.config.model).to_string();
@@ -109,6 +120,7 @@ impl Engine {
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
             "thinking": { "type": "disabled" },
+            "tool_choice": "auto",
         });
 
         // Add tools if available
