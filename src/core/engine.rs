@@ -219,7 +219,12 @@ impl Engine {
                 .await?
         };
 
-        let data: Value = res.json().await?;
+        let res_text = res.text().await.unwrap_or_default();
+        tracing::debug!("LLM raw response: {}", res_text);
+
+        let data: Value = serde_json::from_str(&res_text).map_err(|e| {
+            anyhow::anyhow!("Failed to parse LLM response: {} | body: {}", e, res_text)
+        })?;
         let message = &data["choices"][0]["message"];
 
         if let Some(tool_calls) = message["tool_calls"].as_array() {
