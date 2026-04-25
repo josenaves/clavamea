@@ -1088,12 +1088,13 @@ impl Tool {
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'message' argument"))?;
 
+                let message_owned = message.to_string();
                 let id = crate::db::queries::insert_schedule(
                     db_pool,
                     user_id,
                     datetime,
                     "reminder",
-                    Some(message),
+                    Some(message_owned.as_str()),
                     None,
                 )
                 .await?;
@@ -1127,7 +1128,7 @@ impl Tool {
                     &cron_expr,
                     "web_search",
                     Some(&payload),
-                    Some(&search_query),
+                    Some(search_query.to_string().as_str()),
                 )
                 .await?;
 
