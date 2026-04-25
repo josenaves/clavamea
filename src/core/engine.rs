@@ -115,7 +115,8 @@ impl Engine {
         msgs.extend(memory.to_api_messages());
 
         let model = if let Some(router_config) = &self.config.router {
-            let prompt_len = msgs.iter()
+            let prompt_len = msgs
+                .iter()
                 .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
                 .map(|s| s.len())
                 .sum::<usize>();
@@ -164,7 +165,6 @@ impl Engine {
         // Make API request with fallback on 429
         let res = if let Some(router_config) = &self.config.router {
             let models = &router_config.models;
-            let mut last_error = None;
             let mut result_res: Option<reqwest::Response> = None;
 
             for (i, model_attempt) in models.iter().enumerate() {
@@ -180,11 +180,11 @@ impl Engine {
 
                 if res.status() == 429 {
                     tracing::warn!("Rate limited on model {}, trying next", model_attempt);
-                    last_error = Some(format!("Rate limited on model {}", model_attempt));
+                    let err_msg = format!("Rate limited on model {}", model_attempt);
                     if i + 1 < models.len() {
                         continue;
                     } else {
-                        return Err(anyhow::anyhow!("Rate limited on all models: {}", last_error.unwrap_or_default()));
+                        return Err(anyhow::anyhow!("Rate limited on all models: {}", err_msg));
                     }
                 }
 

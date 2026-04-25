@@ -18,19 +18,34 @@ impl RouterConfig {
         let api_key = std::env::var("OPENROUTER_API_KEY").ok()?;
         let models_str = std::env::var("OPENROUTER_MODELS")
             .unwrap_or_else(|_| "google/gemini-2.0-flash,openai/gpt-4o-mini".to_string());
-        let models: Vec<String> = models_str.split(',').map(|s| s.trim().to_string()).collect();
+        let models: Vec<String> = models_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
         let timeout = std::env::var("OPENROUTER_TIMEOUT")
             .unwrap_or_else(|_| "60".to_string())
             .parse()
             .unwrap_or(60);
-        
-        Some(RouterConfig { api_key, models, timeout })
+
+        Some(RouterConfig {
+            api_key,
+            models,
+            timeout,
+        })
     }
 
     pub fn select_model(&self, request_type: RequestType) -> &str {
         match request_type {
-            RequestType::Complex => self.models.first().map(|s| s.as_str()).unwrap_or("google/gemini-2.0-flash"),
-            RequestType::Simple => self.models.last().map(|s| s.as_str()).unwrap_or("openai/gpt-4o-mini"),
+            RequestType::Complex => self
+                .models
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("google/gemini-2.0-flash"),
+            RequestType::Simple => self
+                .models
+                .last()
+                .map(|s| s.as_str())
+                .unwrap_or("openai/gpt-4o-mini"),
         }
     }
 }
