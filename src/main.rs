@@ -109,6 +109,39 @@ async fn main() -> Result<()> {
             .expect("Failed to initialize memory storage"),
     );
 
+    // Export DB data to memory files for context
+    let owner_id = env::var("OWNER_ID")
+        .unwrap_or_else(|_| "171600982".to_string())
+        .parse()
+        .unwrap_or(171600982);
+    let episodes: Result<Vec<db::models::BookEpisode>, _> =
+        crate::db::queries::get_book_episodes(&db_pool, owner_id).await;
+    if let Ok(episodes) = episodes {
+        if !episodes.is_empty() {
+            let mut content = String::from("# Book Episodes\n\n");
+            for ep in &episodes {
+                content.push_str(&format!("## Episode {}\n\n{}\n\n", ep.id, ep.content));
+            }
+            let _ = storage.write_db_data(owner_id, &content);
+        }
+    }
+    let vehicles: Result<Vec<db::models::Vehicle>, _> =
+        crate::db::queries::get_vehicles(&db_pool, owner_id).await;
+    if let Ok(vehicles) = vehicles {
+        if !vehicles.is_empty() {
+            let mut content = String::from("# Vehicles\n\n");
+            for v in &vehicles {
+                content.push_str(&format!(
+                    "## {} ({})\nModel: {:?}\n\n",
+                    v.name,
+                    v.plate.as_deref().unwrap_or(""),
+                    v.model
+                ));
+            }
+            let _ = storage.write_db_data(owner_id, &content);
+        }
+    }
+
     let router_config = crate::core::router::RouterConfig::from_env();
 
     // Check if we have either DeepSeek config OR OpenRouter router

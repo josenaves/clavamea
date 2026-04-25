@@ -35,6 +35,14 @@ impl MemoryStorage {
         self.base_dir.join(user_id.to_string())
     }
 
+    /// Write DB data to a file that gets included in context
+    pub fn write_db_data(&self, user_id: i64, content: &str) -> Result<()> {
+        self.ensure_user_files(user_id)?;
+        let path = self.user_dir(user_id).join("DB_DATA.md");
+        fs::write(&path, content)?;
+        Ok(())
+    }
+
     /// Ensure the core memory files exist for a user.
     pub fn ensure_user_files(&self, user_id: i64) -> Result<()> {
         let user_path = self.user_dir(user_id);
@@ -179,6 +187,13 @@ impl MemoryStorage {
                 "--- LONG TERM MEMORY ---\n{}\n\n",
                 long_term_memory.trim()
             ));
+        }
+
+        // Include DB data (vehicles, book episodes, etc)
+        if let Ok(db_data) = self.read_file(user_id, "DB_DATA.md") {
+            if !db_data.trim().is_empty() {
+                context.push_str(&format!("--- DATABASE DATA ---\n{}\n\n", db_data.trim()));
+            }
         }
 
         // Include yesterday's notes if they exist

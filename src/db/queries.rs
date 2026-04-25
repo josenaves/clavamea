@@ -906,3 +906,17 @@ pub async fn get_book_chapters(
     .await?;
     Ok(chapters)
 }
+
+/// Get all book episodes for a user.
+pub async fn get_book_episodes(
+    pool: &Pool,
+    user_id: i64,
+) -> Result<Vec<crate::db::models::BookEpisode>> {
+    let episodes = sqlx::query_as::<_, crate::db::models::BookEpisode>(
+        "SELECT * FROM book_episodes WHERE user_id = ?",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(episodes)
+}
