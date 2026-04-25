@@ -217,6 +217,13 @@ async fn process_whatsapp_message(
     let mut turn = 0;
     let max_turns = 20;
 
+    // Look up user timezone if configured
+    let user_tz = crate::db::queries::get_user(&state.app_state.db_pool, user_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|u| u.timezone);
+
     // Create a dummy Bot and ChatId for tool execution compatibility
     // Tools that require sending Telegram files will gracefully fail for WhatsApp
     let dummy_chat_id = teloxide::types::ChatId(chat_id);
@@ -236,7 +243,7 @@ async fn process_whatsapp_message(
         match state
             .app_state
             .engine
-            .generate(user_id, &memory, &tools, lang)
+            .generate(user_id, &memory, &tools, lang, user_tz.as_deref())
             .await
         {
             Ok(LLMResponse::Text(content)) => {

@@ -120,6 +120,7 @@ pub struct User {
     pub authorized: bool,
     pub last_seen_version: String,
     pub full_name: Option<String>,
+    pub timezone: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 

@@ -224,7 +224,7 @@ pub async fn get_vehicle_expenses(
 /// Get a user by ID.
 pub async fn get_user(pool: &Pool, user_id: i64) -> Result<Option<User>> {
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, username, role, authorized, last_seen_version, full_name, created_at FROM users WHERE id = ?"
+        "SELECT id, username, role, authorized, last_seen_version, full_name, timezone, created_at FROM users WHERE id = ?"
     )
     .bind(user_id)
     .fetch_optional(pool)
@@ -289,7 +289,7 @@ pub async fn deauthorize_user(pool: &Pool, user_id: i64) -> Result<()> {
 /// List all users.
 pub async fn list_users(pool: &Pool) -> Result<Vec<User>> {
     let users = sqlx::query_as::<_, User>(
-        "SELECT id, username, role, authorized, last_seen_version, full_name, created_at FROM users ORDER BY created_at DESC"
+        "SELECT id, username, role, authorized, last_seen_version, full_name, timezone, created_at FROM users ORDER BY created_at DESC"
     )
     .fetch_all(pool)
     .await?;
@@ -306,21 +306,45 @@ pub async fn update_user_seen_version(pool: &Pool, user_id: i64, version: &str) 
     Ok(())
 }
 
+/// Update a user's timezone.
+pub async fn update_user_timezone(pool: &Pool, user_id: i64, timezone: &str) -> Result<()> {
+    sqlx::query("UPDATE users SET timezone = ? WHERE id = ?")
+        .bind(timezone)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 // --- SCHEDULE QUERIES ---
 
-/// Fetch schedules that are due to run at the given time and weekday.
+/// Compute "today"'s date string in the given IANA timezone.
+/// Falls back to Local::now() if the timezone is invalid.
+fn compute_today(timezone: &str) -> String {
+    use chrono::TimeZone;
+    timezone
+        .parse::<chrono_tz::Tz>()
+        .map(|tz| {
+            let now = chrono::Utc::now().with_timezone(&tz);
+            now.format("%Y-%m-%d").to_string()
+        })
+        .unwrap_or_else(|_| Local::now().format("%Y-%m-%d").to_string())
+}
+
+/// Fetch schedules that are due to run at the given time and weekday,
+/// using the given IANA timezone to compute "today" (e.g. "America/Sao_Paulo").
 pub async fn get_due_schedules(
     pool: &Pool,
     time_str: &str,
     weekday: &str,
+    timezone: &str,
 ) -> Result<Vec<crate::db::models::Schedule>> {
     let all_schedules = sqlx::query_as::<_, crate::db::models::Schedule>("SELECT * FROM schedules")
         .fetch_all(pool)
         .await?;
 
     let mut due = Vec::new();
-    // Use Local time so reminders match the user's timezone (not UTC)
-    let today = Local::now().format("%Y-%m-%d").to_string();
+    let today = compute_today(timezone);
 
     for s in all_schedules {
         let parts: Vec<&str> = s.cron_expr.split_whitespace().collect();
@@ -393,6 +417,20 @@ pub async fn delete_schedule(pool: &Pool, schedule_id: i64) -> Result<()> {
     Ok(())
 }
 
+/// List all schedules for a user.
+pub async fn list_user_schedules(
+    pool: &Pool,
+    user_id: i64,
+) -> Result<Vec<crate::db::models::Schedule>> {
+    let schedules = sqlx::query_as::<_, crate::db::models::Schedule>(
+        "SELECT * FROM schedules WHERE user_id = ? ORDER BY created_at ASC",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(schedules)
+}
+
 /// Insert a new schedule task.
 pub async fn insert_schedule(
     pool: &Pool,
@@ -431,6 +469,7 @@ mod tests {
                 authorized INTEGER,
                 full_name TEXT,
                 last_seen_version TEXT,
+                timezone TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE schedules (
@@ -494,21 +533,29 @@ mod tests {
             .unwrap();
 
         // recurring fires on a weekday
-        let due = get_due_schedules(&pool, "08:00", "WED").await.unwrap();
+        let due = get_due_schedules(&pool, "08:00", "WED", "UTC")
+            .await
+            .unwrap();
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].payload.as_deref(), Some("daily"));
 
         // recurring does NOT fire on weekend
-        let not_due = get_due_schedules(&pool, "08:00", "SAT").await.unwrap();
+        let not_due = get_due_schedules(&pool, "08:00", "SAT", "UTC")
+            .await
+            .unwrap();
         assert_eq!(not_due.len(), 0);
 
         // one-time fires today at 10:00
-        let due_onetime = get_due_schedules(&pool, "10:00", "WED").await.unwrap();
+        let due_onetime = get_due_schedules(&pool, "10:00", "WED", "UTC")
+            .await
+            .unwrap();
         assert_eq!(due_onetime.len(), 1);
         assert_eq!(due_onetime[0].payload.as_deref(), Some("one-time"));
 
         // one-time does NOT fire at wrong time
-        let not_due_onetime = get_due_schedules(&pool, "11:00", "WED").await.unwrap();
+        let not_due_onetime = get_due_schedules(&pool, "11:00", "WED", "UTC")
+            .await
+            .unwrap();
         assert_eq!(not_due_onetime.len(), 0);
     }
 
@@ -523,7 +570,9 @@ mod tests {
             .await
             .unwrap();
 
-        let due = get_due_schedules(&pool, "09:00", "MON").await.unwrap();
+        let due = get_due_schedules(&pool, "09:00", "MON", "UTC")
+            .await
+            .unwrap();
         assert_eq!(due.len(), 1, "MON-FRI schedule should fire on Monday");
 
         let expr = &due[0].cron_expr;
@@ -559,7 +608,9 @@ mod tests {
             .unwrap();
 
         // Must resolve as due on LOCAL today ("23:59") regardless of UTC offset
-        let due = get_due_schedules(&pool, "23:59", "MON").await.unwrap();
+        let due = get_due_schedules(&pool, "23:59", "MON", "UTC")
+            .await
+            .unwrap();
         assert_eq!(
             due.len(),
             1,
@@ -581,7 +632,9 @@ mod tests {
             .unwrap();
 
         // Schedule should fire normally
-        let due = get_due_schedules(&pool, "09:00", "MON").await.unwrap();
+        let due = get_due_schedules(&pool, "09:00", "MON", "UTC")
+            .await
+            .unwrap();
         assert_eq!(due.len(), 1, "Should fire before last_run is set");
         let schedule_id = due[0].id;
 
@@ -589,7 +642,9 @@ mod tests {
         update_schedule_last_run(&pool, schedule_id).await.unwrap();
 
         // Should NOT fire again on the same day
-        let due_again = get_due_schedules(&pool, "09:00", "MON").await.unwrap();
+        let due_again = get_due_schedules(&pool, "09:00", "MON", "UTC")
+            .await
+            .unwrap();
         assert_eq!(
             due_again.len(),
             0,
@@ -611,14 +666,18 @@ mod tests {
             .unwrap();
 
         // Should fire on today's date at matching time
-        let due = get_due_schedules(&pool, "11:00", "MON").await.unwrap();
+        let due = get_due_schedules(&pool, "11:00", "MON", "UTC")
+            .await
+            .unwrap();
         assert_eq!(due.len(), 1);
         let schedule_id = due[0].id;
 
         // Set last_run and verify it STILL fires (one-time ignores last_run)
         update_schedule_last_run(&pool, schedule_id).await.unwrap();
 
-        let due_after = get_due_schedules(&pool, "11:00", "MON").await.unwrap();
+        let due_after = get_due_schedules(&pool, "11:00", "MON", "UTC")
+            .await
+            .unwrap();
         assert_eq!(
             due_after.len(),
             1,

@@ -5,10 +5,8 @@ use sqlx::{Pool as SqlxPool, Sqlite};
 
 /// Run all pending migrations.
 pub async fn migrate(_pool: &SqlxPool<Sqlite>) -> Result<()> {
-    // TODO: Fix migration path
-    // sqlx::migrate!("migrations")
-    //     .run(pool)
-    //     .await?;
+    // TODO: Fix migration path for sqlx::migrate! macro
+    // sqlx::migrate!("migrations").run(pool).await?;
     Ok(())
 }
 

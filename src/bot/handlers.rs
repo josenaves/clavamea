@@ -290,7 +290,17 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
             }
 
             tracing::info!("Calling LLM for user {} (turn {})", user_id, turn);
-            match state.engine.generate(user_id, &memory, &tools, lang).await {
+            match state
+                .engine
+                .generate(
+                    user_id,
+                    &memory,
+                    &tools,
+                    lang,
+                    user_record.as_ref().and_then(|u| u.timezone.as_deref()),
+                )
+                .await
+            {
                 Ok(LLMResponse::Text(content)) => {
                     // Final text response
                     tracing::info!(

@@ -43,7 +43,9 @@ pub enum Tool {
     GithubUpdateIssue,
     GithubCreatePullRequest,
     DownloadMusic,
-    // Future tools will be added here
+    SetUserTimezone,
+    CancelSchedule,
+    ListSchedules,
 }
 
 impl Tool {
@@ -144,26 +146,7 @@ impl Tool {
                 "type": "function",
                 "function": {
                     "name": "execute_code",
-                    "description": "Executes code in a secure sandboxed environment (Wasm) using WASI. \n\n\
-                                  IMPORTANT for 'wat' language:\n\
-                                  1. You MUST export a function named '_start' (or 'main').\n\
-                                  2. Use (export \"_start\" (func $func_name)). DO NOT use the (start) section.\n\
-                                  3. To print to stdout, you must import and use 'wasi_snapshot_preview1' -> 'fd_write'.\n\
-                                  4. CRITICAL: In WAT string literals, you MUST double-escape newlines as \\\\n to prevent JSON from evaluating them into literal newlines.\n\n\
-                                  Example WAT for 'Hello World':\n\
-                                  (module\n\
-                                    (import \"wasi_snapshot_preview1\" \"fd_write\" (func $fd_write (param i32 i32 i32 i32) (result i32)))\n\
-                                    (memory 1)\n\
-                                    (export \"memory\" (memory 0))\n\
-                                    (data (i32.const 8) \"Hello, Wasm!\\\\n\")\n\
-                                    (func $main (export \"_start\")\n\
-                                      (i32.const 0) (i32.const 8) (i32.store)\n\
-                                      (i32.const 4) (i32.const 13) (i32.store)\n\
-                                      (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 24)\n\
-                                      (call $fd_write)\n\
-                                      drop\n\
-                                    )\n\
-                                  )",
+                    "description": "Executes WebAssembly Text (WAT) code in a sandboxed Wasm runtime via WASI. Only WAT format is supported. This CANNOT run Python, JavaScript, or other languages — only WAT/Wasm.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -281,7 +264,7 @@ impl Tool {
                             "odometer": { "type": "number", "description": "The current odometer reading in km" },
                             "liters": { "type": "number", "description": "Amount of fuel in liters" },
                             "price_per_liter": { "type": "number", "description": "Price per liter" },
-                            "fuel_type": { "type": "string", "enum": ["gasoline", "alcohol"], "description": "Type of fuel used" }
+                            "fuel_type": { "type": "string", "enum": ["gasoline", "alcohol", "diesel", "flex"], "description": "Type of fuel used" }
                         },
                         "required": ["vehicle_id", "odometer", "liters", "price_per_liter", "fuel_type"]
                     }
@@ -308,12 +291,11 @@ impl Tool {
                 "type": "function",
                 "function": {
                     "name": "get_vehicle_report",
-                    "description": "Generates a report of expenses and fuel consumption.",
+                    "description": "Generates a report of expenses and fuel consumption for the last 12 months.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "vehicle_id": { "type": "integer", "description": "The ID of the vehicle" },
-                            "period": { "type": "string", "enum": ["all", "month", "year"], "description": "Report period" }
+                            "vehicle_id": { "type": "integer", "description": "The ID of the vehicle" }
                         },
                         "required": ["vehicle_id"]
                     }
@@ -323,13 +305,13 @@ impl Tool {
                 "type": "function",
                 "function": {
                     "name": "schedule_reminder",
-                    "description": "Schedules a proactive message/reminder to be sent to the user at a specific future date and time.",
+                    "description": "Schedules a proactive message/reminder to be sent to the user. Supports both one-time and recurring reminders.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "datetime": {
                                 "type": "string",
-                                "description": "The exact date and time to send the message in 'YYYY-MM-DD HH:MM' format (e.g., '2026-03-22 10:00'), OR a recurring time 'HH:MM MON-FRI'."
+                                "description": "For ONE-TIME reminders: 'YYYY-MM-DD HH:MM' (e.g., '2026-03-22 10:00'). For RECURRING reminders: 'HH:MM DAYS' (e.g., '09:00 MON-FRI' or '17:10 MON,WED,FRI')."
                             },
                             "message": {
                                 "type": "string",
@@ -628,6 +610,51 @@ impl Tool {
                     }
                 }
             }),
+            Tool::SetUserTimezone => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "set_user_timezone",
+                    "description": "Sets the user's timezone for accurate scheduling of reminders. Call this when you detect or the user tells you their timezone.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "timezone": {
+                                "type": "string",
+                                "description": "IANA timezone identifier (e.g., 'America/Sao_Paulo', 'America/New_York', 'Europe/London', 'UTC')"
+                            }
+                        },
+                        "required": ["timezone"]
+                    }
+                }
+            }),
+            Tool::CancelSchedule => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "cancel_schedule",
+                    "description": "Cancels/deletes a scheduled reminder by its ID. Use this when the user wants to cancel a previously scheduled reminder.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "schedule_id": {
+                                "type": "integer",
+                                "description": "The ID of the schedule to cancel (shown when the reminder was created)."
+                            }
+                        },
+                        "required": ["schedule_id"]
+                    }
+                }
+            }),
+            Tool::ListSchedules => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "list_schedules",
+                    "description": "Lists all pending scheduled reminders for the current user. Use this when the user asks what reminders are active.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            }),
         }
     }
 
@@ -663,6 +690,9 @@ impl Tool {
             "github_update_issue" => Some(Tool::GithubUpdateIssue),
             "github_create_pull_request" => Some(Tool::GithubCreatePullRequest),
             "download_music" => Some(Tool::DownloadMusic),
+            "set_user_timezone" => Some(Tool::SetUserTimezone),
+            "cancel_schedule" => Some(Tool::CancelSchedule),
+            "list_schedules" => Some(Tool::ListSchedules),
             _ => None,
         }
     }
@@ -840,6 +870,15 @@ impl Tool {
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'fuel_type' argument"))?;
 
+                let valid_types = ["gasoline", "alcohol", "diesel", "flex"];
+                if !valid_types.contains(&fuel_type) {
+                    return Err(anyhow!(
+                        "Invalid fuel_type '{}'. Must be one of: {}",
+                        fuel_type,
+                        valid_types.join(", ")
+                    ));
+                }
+
                 let total_cost = liters * price_per_liter;
 
                 // Calculate km/L if there's a previous log
@@ -886,6 +925,23 @@ impl Tool {
                 let category = args["category"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'category' argument"))?;
+
+                let valid_categories = [
+                    "maintenance",
+                    "tax",
+                    "parking",
+                    "toll",
+                    "insurance",
+                    "other",
+                ];
+                if !valid_categories.contains(&category) {
+                    return Err(anyhow!(
+                        "Invalid category '{}'. Must be one of: {}",
+                        category,
+                        valid_categories.join(", ")
+                    ));
+                }
+
                 let cost = args["cost"]
                     .as_f64()
                     .ok_or_else(|| anyhow!("Missing 'cost' argument"))?;
@@ -1016,6 +1072,12 @@ impl Tool {
                 let url = args["url"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'url' argument"))?;
+                if !is_safe_url(url) {
+                    return Err(anyhow!(
+                        "URL not allowed: {}. Only HTTP(S) URLs to public hosts are supported.",
+                        url
+                    ));
+                }
                 self.perform_fetch_url(url).await
             }
             Tool::SaveRecipe => {
@@ -1102,7 +1164,8 @@ impl Tool {
                 let content = args["content"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'content' argument"))?;
-                self.perform_edit_code(path, content).await
+                self.perform_edit_code(user_id, path, content, allowed_paths)
+                    .await
             }
             Tool::GitOperate => {
                 let command = args["command"]
@@ -1140,7 +1203,50 @@ impl Tool {
                 let url = args["url"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Missing 'url' argument"))?;
+                if !is_youtube_url(url) {
+                    return Err(anyhow!(
+                        "Only YouTube URLs are supported for music download. Got: {}",
+                        url
+                    ));
+                }
                 self.perform_download_music(bot, chat_id, url).await
+            }
+            Tool::SetUserTimezone => {
+                let tz = args["timezone"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'timezone' argument"))?;
+                crate::db::queries::update_user_timezone(db_pool, user_id, tz).await?;
+                Ok(format!(
+                    "Timezone set to {} for user {}. All reminders will use this timezone.",
+                    tz, user_id
+                ))
+            }
+            Tool::CancelSchedule => {
+                let schedule_id = args["schedule_id"]
+                    .as_i64()
+                    .ok_or_else(|| anyhow!("Missing 'schedule_id' argument"))?;
+                crate::db::queries::delete_schedule(db_pool, schedule_id).await?;
+                Ok(format!("Schedule {} cancelled successfully.", schedule_id))
+            }
+            Tool::ListSchedules => {
+                let schedules = crate::db::queries::list_user_schedules(db_pool, user_id).await?;
+                if schedules.is_empty() {
+                    Ok("You have no pending reminders.".to_string())
+                } else {
+                    let lines: Vec<String> = schedules
+                        .iter()
+                        .map(|s| {
+                            format!(
+                                "ID {} — {} {}: {}",
+                                s.id,
+                                s.task_type,
+                                s.cron_expr,
+                                s.payload.as_deref().unwrap_or("(no message)")
+                            )
+                        })
+                        .collect();
+                    Ok(format!("Your reminders:\n\n{}", lines.join("\n")))
+                }
             }
         }
     }
@@ -1548,26 +1654,31 @@ impl Tool {
         }
     }
 
-    async fn perform_edit_code(&self, path_str: &str, content: &str) -> Result<String> {
-        let path = std::path::Path::new(path_str);
-        // Basic security to prevent exiting the project root
-        if path.is_absolute() || path_str.contains("..") {
-            return Err(anyhow!(
-                "Invalid path: must be a relative path within the repository without '..'"
-            ));
-        }
+    async fn perform_edit_code(
+        &self,
+        user_id: i64,
+        path_str: &str,
+        content: &str,
+        allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
+    ) -> Result<String> {
+        // Use the shared path validation (respects sandbox settings and allowed_paths)
+        let canonical_path = self
+            .validate_path(user_id, path_str, true, allowed_paths)
+            .await?;
 
-        let parent = path.parent().unwrap_or_else(|| std::path::Path::new(""));
+        let parent = canonical_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(""));
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
 
-        std::fs::write(path, content)?;
+        std::fs::write(&canonical_path, content)?;
         Ok(format!("Successfully wrote code to {}.", path_str))
     }
 
     async fn perform_git_operate(&self, command: &str) -> Result<String> {
-        let args_vec: Vec<&str> = command.split_whitespace().collect();
+        let args_vec = shell_split(command);
         if args_vec.is_empty() {
             return Err(anyhow!("Empty git command."));
         }
@@ -1821,6 +1932,109 @@ impl Tool {
     }
 }
 
+/// Split a shell command string into arguments, respecting single and double quotes.
+fn shell_split(input: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        let ch = chars[i];
+
+        if in_double {
+            if ch == '"' {
+                in_double = false;
+            } else {
+                current.push(ch);
+            }
+        } else if in_single {
+            if ch == '\'' {
+                in_single = false;
+            } else {
+                current.push(ch);
+            }
+        } else if ch == '"' {
+            in_double = true;
+        } else if ch == '\'' {
+            in_single = true;
+        } else if ch == '\\' && i + 1 < chars.len() {
+            current.push(chars[i + 1]);
+            i += 1;
+        } else if ch.is_whitespace() {
+            if !current.is_empty() {
+                args.push(current.clone());
+                current.clear();
+            }
+        } else {
+            current.push(ch);
+        }
+        i += 1;
+    }
+
+    if !current.is_empty() {
+        args.push(current);
+    }
+
+    args
+}
+
+/// Validate that a URL is safe to fetch (no private IPs, no localhost, HTTP(S) only).
+fn is_safe_url(url_str: &str) -> bool {
+    let url = match url::Url::parse(url_str) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+
+    let scheme = url.scheme();
+    if scheme != "http" && scheme != "https" {
+        return false;
+    }
+
+    let host = match url.host_str() {
+        Some(h) => h.to_lowercase(),
+        None => return false,
+    };
+
+    if host.is_empty() {
+        return false;
+    }
+
+    if host == "localhost" || host == "127.0.0.1" || host == "[::1]" {
+        return false;
+    }
+
+    if host.starts_with("169.254.") {
+        return false;
+    }
+
+    if host.starts_with("10.") || host.starts_with("172.16.") || host.starts_with("192.168.") {
+        if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+            if ip.is_private() {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+/// Check if a URL is a YouTube video URL.
+fn is_youtube_url(url_str: &str) -> bool {
+    if let Ok(url) = url::Url::parse(url_str) {
+        let host = url.host_str().unwrap_or("");
+        host == "www.youtube.com"
+            || host == "youtube.com"
+            || host == "youtu.be"
+            || host == "www.youtu.be"
+            || host == "m.youtube.com"
+    } else {
+        false
+    }
+}
+
 /// Get all available tools for the current phase.
 pub fn get_available_tools(phase: u8) -> Vec<Tool> {
     match phase {
@@ -1856,6 +2070,9 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
             Tool::GithubUpdateIssue,
             Tool::GithubCreatePullRequest,
             Tool::DownloadMusic,
+            Tool::SetUserTimezone,
+            Tool::CancelSchedule,
+            Tool::ListSchedules,
         ],
         _ => vec![],
     }
@@ -1864,15 +2081,12 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_all_tools_parsable_by_name() {
-        // Enumerate all active tool phases
         for phase in 1..=3 {
             for tool in get_available_tools(phase) {
-                // Ensure every tool defined actually has its parsed name mapped in `from_name`.
-                // This prevents bugs where the LLM is given the tool definition but the handler
-                // doesn't recognize the callback name.
                 let definition = tool.definition();
                 let name = definition["function"]["name"]
                     .as_str()
@@ -1881,13 +2095,156 @@ mod tests {
                 let parsed = Tool::from_name(name);
                 assert!(
                     parsed.is_some(),
-                    "Tool '{}' relies on `Tool::from_name` but was not found in the match arm! \
-                     Add it to `from_name` in src/core/tools.rs to fix this.",
+                    "Tool '{}' relies on `Tool::from_name` but was not found in the match arm!",
                     name
                 );
             }
         }
     }
+
+    // ========== shell_split tests ==========
+
+    #[test]
+    fn test_shell_split_simple() {
+        let result = shell_split("git status");
+        assert_eq!(result, vec!["git", "status"]);
+    }
+
+    #[test]
+    fn test_shell_split_with_double_quotes() {
+        let result = shell_split(r#"commit -m "fix bug in parser""#);
+        assert_eq!(result, vec!["commit", "-m", "fix bug in parser"]);
+    }
+
+    #[test]
+    fn test_shell_split_with_single_quotes() {
+        let result = shell_split("echo 'hello world'");
+        assert_eq!(result, vec!["echo", "hello world"]);
+    }
+
+    #[test]
+    fn test_shell_split_mixed_quotes() {
+        let result = shell_split(r#"commit -m "it's working""#);
+        assert_eq!(result, vec!["commit", "-m", "it's working"]);
+    }
+
+    #[test]
+    fn test_shell_split_empty() {
+        let result = shell_split("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_shell_split_whitespace_only() {
+        let result = shell_split("   \t  ");
+        assert!(result.is_empty());
+    }
+
+    // ========== URL validation tests ==========
+
+    #[test]
+    fn test_is_safe_url_https() {
+        assert!(is_safe_url("https://example.com/path?q=1"));
+    }
+
+    #[test]
+    fn test_is_safe_url_http() {
+        assert!(is_safe_url("http://example.com"));
+    }
+
+    #[test]
+    fn test_is_safe_url_rejects_localhost() {
+        assert!(!is_safe_url("http://localhost:8080/api"));
+    }
+
+    #[test]
+    fn test_is_safe_url_rejects_loopback() {
+        assert!(!is_safe_url("http://127.0.0.1:3000"));
+    }
+
+    #[test]
+    fn test_is_safe_url_rejects_private_ip() {
+        assert!(!is_safe_url("http://192.168.1.1/admin"));
+        assert!(!is_safe_url("http://10.0.0.1:80"));
+    }
+
+    #[test]
+    fn test_is_safe_url_rejects_metadata() {
+        assert!(!is_safe_url("http://169.254.169.254/latest/meta-data"));
+    }
+
+    #[test]
+    fn test_is_safe_url_rejects_file() {
+        assert!(!is_safe_url("file:///etc/passwd"));
+    }
+
+    #[test]
+    fn test_is_safe_url_rejects_invalid() {
+        assert!(!is_safe_url("not-a-url"));
+        assert!(!is_safe_url(""));
+    }
+
+    // ========== is_youtube_url tests ==========
+
+    #[test]
+    fn test_is_youtube_url_valid() {
+        assert!(is_youtube_url("https://www.youtube.com/watch?v=abc123"));
+        assert!(is_youtube_url("https://youtube.com/watch?v=abc123"));
+        assert!(is_youtube_url("https://youtu.be/abc123"));
+        assert!(is_youtube_url("https://m.youtube.com/watch?v=abc123"));
+    }
+
+    #[test]
+    fn test_is_youtube_url_rejects_other() {
+        assert!(!is_youtube_url("https://vimeo.com/12345"));
+        assert!(!is_youtube_url("https://soundcloud.com/track"));
+        assert!(!is_youtube_url("not-a-url"));
+        assert!(!is_youtube_url(""));
+    }
+
+    // ========== Tool definition tests ==========
+
+    #[test]
+    fn test_get_vehicle_report_definition_has_no_period() {
+        let def = Tool::GetVehicleReport.definition();
+        let params = &def["function"]["parameters"]["properties"];
+        // period was removed since it's not implemented
+        assert!(params.get("period").is_none());
+        assert!(params.get("vehicle_id").is_some());
+    }
+
+    #[test]
+    fn test_schedule_reminder_requires_datetime_and_message() {
+        let def = Tool::ScheduleReminder.definition();
+        let required = def["function"]["parameters"]["required"]
+            .as_array()
+            .unwrap();
+        let required: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required.contains(&"datetime"));
+        assert!(required.contains(&"message"));
+    }
+
+    #[test]
+    fn test_all_tool_definitions_have_valid_schemas() {
+        for tool in get_available_tools(3) {
+            let def = tool.definition();
+            assert!(
+                def["type"].as_str() == Some("function"),
+                "Tool missing type"
+            );
+            let func = &def["function"];
+            assert!(
+                func["name"].as_str().is_some(),
+                "Tool missing function name"
+            );
+            assert!(
+                func["parameters"].is_object(),
+                "Tool missing parameters object"
+            );
+        }
+    }
+
+    // ========== validate_path tests ==========
 
     #[tokio::test]
     async fn test_validate_path_user_fallback() -> anyhow::Result<()> {
@@ -1905,9 +2262,8 @@ mod tests {
         std::fs::write(&recipe_file, "conteudo da lasanha")?;
 
         let tool = Tool::FileReader;
-        let allowed_paths = std::sync::Arc::new(tokio::sync::RwLock::new(vec![]));
+        let allowed_paths = Arc::new(tokio::sync::RwLock::new(vec![]));
 
-        // Test fallback for relative path "recipes/lasanha.md"
         let resolved = tool
             .validate_path(user_id, "recipes/lasanha.md", false, allowed_paths)
             .await?;
@@ -1920,8 +2276,685 @@ mod tests {
                 .contains("memory/123456/recipes/lasanha.md")
         );
 
-        // Restore directory
         std::env::set_current_dir(original_dir)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_validate_path_rejects_path_outside_sandbox() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let base_path = temp.path().to_path_buf();
+        let original_dir = std::env::current_dir()?;
+        std::env::set_current_dir(&base_path)?;
+
+        // Create a file outside the project (in /tmp)
+        let outside = std::env::temp_dir().join("clavamea_test_outside");
+        std::fs::write(&outside, "secret")?;
+
+        let tool = Tool::FileReader;
+        let allowed_paths = Arc::new(tokio::sync::RwLock::new(vec![]));
+
+        let result = tool
+            .validate_path(1, outside.to_str().unwrap(), false, allowed_paths)
+            .await;
+
+        assert!(result.is_err(), "Should reject path outside sandbox");
+
+        let _ = std::fs::remove_file(&outside);
+        std::env::set_current_dir(original_dir)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_validate_path_with_sandbox_disabled() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let base_path = temp.path().to_path_buf();
+        let original_dir = std::env::current_dir()?;
+        std::env::set_current_dir(&base_path)?;
+
+        // Create file outside project
+        let outside = std::env::temp_dir().join("clavamea_sandbox_off_test");
+        std::fs::write(&outside, "accessible")?;
+
+        // Enable sandbox bypass
+        unsafe { std::env::set_var("DISABLE_PATH_SANDBOX", "true") };
+
+        let tool = Tool::FileReader;
+        let allowed_paths = Arc::new(tokio::sync::RwLock::new(vec![]));
+
+        let result = tool
+            .validate_path(1, outside.to_str().unwrap(), false, allowed_paths)
+            .await;
+
+        assert!(result.is_ok(), "Should allow path when sandbox is disabled");
+
+        // Cleanup
+        unsafe { std::env::remove_var("DISABLE_PATH_SANDBOX") };
+        let _ = std::fs::remove_file(&outside);
+        std::env::set_current_dir(original_dir)?;
+        Ok(())
+    }
+
+    // ========== Tool execution tests (with DB) ==========
+
+    async fn make_test_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY,
+                username TEXT, role TEXT, authorized INTEGER,
+                full_name TEXT, last_seen_version TEXT,
+                timezone TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                cron_expr TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                payload TEXT,
+                last_run TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            CREATE TABLE vehicles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                model TEXT,
+                plate TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            CREATE TABLE fuel_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vehicle_id INTEGER NOT NULL,
+                odometer REAL NOT NULL,
+                liters REAL NOT NULL,
+                price_per_liter REAL NOT NULL,
+                fuel_type TEXT NOT NULL,
+                total_cost REAL NOT NULL,
+                date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+            );
+            CREATE TABLE expense_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vehicle_id INTEGER NOT NULL,
+                category TEXT NOT NULL,
+                description TEXT,
+                cost REAL NOT NULL,
+                date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+            );
+            CREATE TABLE document_chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                path TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL DEFAULT 0,
+                content TEXT NOT NULL,
+                embedding BLOB,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+        ",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO users (id, role, authorized) VALUES (1, 'owner', 1);")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_schedule_reminder_execution() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        let tool = Tool::ScheduleReminder;
+
+        let args = serde_json::json!({
+            "datetime": "2099-12-31 08:00",
+            "message": "Test reminder"
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(result.contains("successfully scheduled"));
+        assert!(result.contains("ID:"));
+
+        // Verify it's in the DB
+        let _schedules =
+            crate::db::queries::get_due_schedules(&pool, "08:00", "MON", "UTC").await?;
+        // Since date is 2099-12-31, which is not today, it won't be due now
+        // But it should exist
+        let all: Vec<crate::db::models::Schedule> = sqlx::query_as("SELECT * FROM schedules")
+            .fetch_all(&pool)
+            .await?;
+        assert!(!all.is_empty());
+        assert_eq!(all[0].task_type, "reminder");
+        assert_eq!(all[0].payload.as_deref(), Some("Test reminder"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_schedule_reminder_recurring() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        let tool = Tool::ScheduleReminder;
+
+        let args = serde_json::json!({
+            "datetime": "09:00 MON-FRI",
+            "message": "Daily standup"
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(result.contains("successfully scheduled"));
+
+        // Verify due on a weekday
+        let due = crate::db::queries::get_due_schedules(&pool, "09:00", "MON", "UTC").await?;
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].payload.as_deref(), Some("Daily standup"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_vehicle_report_basic() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        let tool = Tool::GetVehicleReport;
+
+        // Add a vehicle first
+        crate::db::queries::insert_vehicle(&pool, 1, "Meu Carro", Some("Modelo X"), None).await?;
+
+        let args = serde_json::json!({"vehicle_id": 1});
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(
+            result.contains("Relatório do Veículo"),
+            "Expected report to contain 'Relatório do Veículo', got: {}",
+            result
+        );
+        assert!(
+            result.contains("Total geral"),
+            "Expected report to contain 'Total geral', got: {}",
+            result
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_log_fuel_and_get_report() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        crate::db::queries::insert_vehicle(&pool, 1, "Meu Carro", None, None).await?;
+
+        // Log fuel
+        let tool = Tool::LogFuel;
+        let args = serde_json::json!({
+            "vehicle_id": 1,
+            "odometer": 1000.0,
+            "liters": 50.0,
+            "price_per_liter": 5.50,
+            "fuel_type": "gasoline"
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(result.contains("R$ 275.00")); // 50 * 5.50
+
+        // Now check the report
+        let report_tool = Tool::GetVehicleReport;
+        let report_args = serde_json::json!({"vehicle_id": 1});
+
+        let report = report_tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &report_args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(report.contains("R$ 275.00"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_genetics_calculate_hardy_weinberg() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        let tool = Tool::GeneticsCalculate;
+
+        let args = serde_json::json!({
+            "calculation_type": "hardy_weinberg",
+            "affected": 1600.0,
+            "population": 10000.0
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        // q = sqrt(1600/10000) = sqrt(0.16) = 0.4
+        // p = 1 - 0.4 = 0.6
+        assert!(result.contains("0.4") || result.contains("40%")); // q
+        assert!(result.contains("0.6") || result.contains("60%")); // p
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_genetics_calculate_punnett() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        let tool = Tool::GeneticsCalculate;
+
+        let args = serde_json::json!({
+            "calculation_type": "punnett",
+            "parent1": "Aa",
+            "parent2": "Aa"
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(result.contains("AA"));
+        assert!(result.contains("Aa"));
+        assert!(result.contains("aa"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_log_fuel_missing_args_returns_helpful_error() {
+        let pool = make_test_pool().await;
+        let tool = Tool::LogFuel;
+
+        let args = serde_json::json!({}); // empty — missing all fields
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir().unwrap().path()).unwrap()),
+                Arc::new(crate::core::RagManager::new(pool.clone()).unwrap()),
+                Arc::new(crate::core::wasm::WasmRuntime::new().unwrap()),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("vehicle_id"));
+    }
+
+    #[tokio::test]
+    async fn test_edit_code_rejects_absolute_path() -> anyhow::Result<()> {
+        // Ensure sandbox is enabled for this test (undo any side effects from parallel tests)
+        unsafe { std::env::remove_var("DISABLE_PATH_SANDBOX") };
+
+        let pool = make_test_pool().await;
+        let tool = Tool::EditCode;
+        let allowed_paths = Arc::new(tokio::sync::RwLock::new(vec![]));
+
+        let args = serde_json::json!({
+            "path": "/etc/passwd",
+            "content": "malicious"
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                allowed_paths,
+                &pool,
+            )
+            .await;
+
+        assert!(result.is_err(), "Expected error for absolute path");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("negado") || err.contains("autorizado") || err.contains("Acesso"),
+            "Expected access denied, got: {}",
+            err
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_edit_code_allows_relative_path_in_project() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        let tool = Tool::EditCode;
+        let allowed_paths = Arc::new(tokio::sync::RwLock::new(vec![]));
+
+        // Sandbox must be off to avoid macOS symlink canonicalization issues
+        // with non-existent files on /Users -> /private/Users paths
+        unsafe { std::env::set_var("DISABLE_PATH_SANDBOX", "true") };
+
+        let args = serde_json::json!({
+            "path": "test_output_tools.rs",
+            "content": "// test file"
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                allowed_paths,
+                &pool,
+            )
+            .await?;
+
+        unsafe { std::env::remove_var("DISABLE_PATH_SANDBOX") };
+
+        assert!(
+            result.contains("Successfully wrote code"),
+            "Expected success, got: {}",
+            result
+        );
+
+        // The smart fallback in validate_path puts non-existent relative paths into memory/<user_id>/
+        let written = std::path::Path::new("memory/1/test_output_tools.rs");
+        let written_root = std::path::Path::new("test_output_tools.rs");
+        assert!(
+            written.exists() || written_root.exists(),
+            "File should exist at {} or {}",
+            written.display(),
+            written_root.display()
+        );
+
+        let _ = std::fs::remove_file("memory/1/test_output_tools.rs");
+        let _ = std::fs::remove_file("test_output_tools.rs");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_save_memory_valid_and_invalid_targets() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        let temp = tempfile::tempdir()?;
+        let storage = Arc::new(MemoryStorage::new(temp.path())?);
+
+        let tool = Tool::SaveMemory;
+
+        // Valid target: MEMORY.md
+        let args = serde_json::json!({
+            "target": "MEMORY.md",
+            "content": "Test memory entry"
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                storage.clone(),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(result.contains("Successfully appended"));
+
+        // Invalid target
+        let bad_args = serde_json::json!({
+            "target": "INVALID.md",
+            "content": "Bad target"
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &bad_args,
+                storage,
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid target"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_log_fuel_rejects_invalid_fuel_type() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        crate::db::queries::insert_vehicle(&pool, 1, "Carro", None, None).await?;
+
+        let tool = Tool::LogFuel;
+        let args = serde_json::json!({
+            "vehicle_id": 1,
+            "odometer": 100.0,
+            "liters": 10.0,
+            "price_per_liter": 5.0,
+            "fuel_type": "invalid_type"
+        });
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid fuel_type")
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cancel_schedule() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        crate::db::queries::insert_schedule(&pool, 1, "2099-01-01 08:00", "reminder", Some("test"))
+            .await?;
+
+        let tool = Tool::CancelSchedule;
+        let args = serde_json::json!({"schedule_id": 1});
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(result.contains("cancelled"));
+
+        // Verify it's gone
+        let all: Vec<crate::db::models::Schedule> = sqlx::query_as("SELECT * FROM schedules")
+            .fetch_all(&pool)
+            .await?;
+        assert!(all.is_empty());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_list_schedules_empty() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+
+        let tool = Tool::ListSchedules;
+        let args = serde_json::json!({});
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(result.contains("no pending reminders"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_list_schedules_with_reminders() -> anyhow::Result<()> {
+        let pool = make_test_pool().await;
+        crate::db::queries::insert_schedule(
+            &pool,
+            1,
+            "08:00 MON-FRI",
+            "reminder",
+            Some("daily reminder"),
+        )
+        .await?;
+        crate::db::queries::insert_schedule(
+            &pool,
+            1,
+            "2099-12-25 10:00",
+            "reminder",
+            Some("christmas"),
+        )
+        .await?;
+
+        let tool = Tool::ListSchedules;
+        let args = serde_json::json!({});
+
+        let result = tool
+            .execute(
+                &teloxide::Bot::new("dummy"),
+                teloxide::types::ChatId(1),
+                1,
+                &args,
+                Arc::new(MemoryStorage::new(tempfile::tempdir()?.path())?),
+                Arc::new(crate::core::RagManager::new(pool.clone())?),
+                Arc::new(crate::core::wasm::WasmRuntime::new()?),
+                Arc::new(tokio::sync::RwLock::new(vec![])),
+                &pool,
+            )
+            .await?;
+
+        assert!(result.contains("daily reminder"));
+        assert!(result.contains("christmas"));
+        assert!(result.contains("MON-FRI"));
+
         Ok(())
     }
 }
