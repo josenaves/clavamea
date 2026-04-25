@@ -280,6 +280,7 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
 
         loop {
             if turn >= max_turns {
+                tracing::warn!("Max turns reached for user {}", user_id);
                 bot.send_message(
                     msg.chat.id,
                     "I reached my maximum thinking limit for this turn.",
@@ -288,9 +289,15 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
                 break;
             }
 
+            tracing::info!("Calling LLM for user {} (turn {})", user_id, turn);
             match state.engine.generate(user_id, &memory, &tools, lang).await {
                 Ok(LLMResponse::Text(content)) => {
                     // Final text response
+                    tracing::info!(
+                        "LLM returned text for user {} ({} chars)",
+                        user_id,
+                        content.len()
+                    );
                     let assistant_interaction =
                         NewInteraction::assistant(chat_id, content.clone(), lang);
                     if let Err(e) = crate::db::queries::insert_interaction(
@@ -310,6 +317,15 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
                 }
                 Ok(LLMResponse::ToolCalls(tool_calls)) => {
                     // LLM requested tool execution
+                    tracing::info!(
+                        "LLM requested {} tool(s) for user {}: {:?}",
+                        tool_calls.len(),
+                        user_id,
+                        tool_calls
+                            .iter()
+                            .map(|t| t.function.name.as_str())
+                            .collect::<Vec<_>>()
+                    );
                     memory.add_message(MemoryMessage::tool_calls(tool_calls.clone()));
 
                     for tool_call in tool_calls {

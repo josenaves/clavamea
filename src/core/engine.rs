@@ -35,7 +35,10 @@ pub struct Engine {
 impl Engine {
     /// Create a new engine with the given configuration.
     pub fn new(config: EngineConfig) -> Result<Self> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()?;
         let storage = config.storage.clone();
         let allowed_paths = config.allowed_paths.clone();
         Ok(Self {

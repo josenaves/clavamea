@@ -1,5 +1,6 @@
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
+use tracing::info;
 
 /// Safely sends a long message to Telegram by chunking it if it exceeds the 4096 character limit.
 /// Tries to split by newlines where possible to preserve formatting.
@@ -9,6 +10,8 @@ pub async fn send_chunked_message(
     text: &str,
 ) -> ResponseResult<()> {
     const MAX_LEN: usize = 4000; // Leave a little buffer for safety
+
+    info!("Sending response to {} ({} chars)", chat_id, text.len());
 
     if text.len() <= MAX_LEN {
         bot.send_message(chat_id, text)
