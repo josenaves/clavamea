@@ -109,7 +109,17 @@ async fn main() -> Result<()> {
             .expect("Failed to initialize memory storage"),
     );
 
-    let engine = if let (Some(api_url), Some(api_key)) = (llm_api_url, llm_api_key) {
+    let router_config = crate::core::router::RouterConfig::from_env();
+
+    // Check if we have either DeepSeek config OR OpenRouter router
+    let has_deepseek = llm_api_url.is_some() && llm_api_key.is_some();
+    let has_openrouter = router_config.is_some();
+
+    let engine = if has_deepseek || has_openrouter {
+        // Default to OpenRouter URL if only using router
+        let api_url = llm_api_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
+        let api_key = llm_api_key.unwrap_or_else(|| "dummy".to_string());
+
         let config = EngineConfig {
             api_url,
             api_key,
@@ -120,7 +130,7 @@ async fn main() -> Result<()> {
             temperature: llm_temperature,
             storage: storage.clone(),
             allowed_paths: dynamic_allowed_paths.clone(),
-            router: crate::core::router::RouterConfig::from_env(),
+            router: router_config.clone(),
         };
         match Engine::new(config) {
             Ok(engine) => {
@@ -140,7 +150,7 @@ async fn main() -> Result<()> {
                         temperature: 0.7,
                         storage: storage.clone(),
                         allowed_paths: dynamic_allowed_paths.clone(),
-                        router: None,
+                        router: router_config.clone(),
                     })
                     .expect("Failed to init placeholder engine"),
                 )
@@ -159,7 +169,7 @@ async fn main() -> Result<()> {
                 temperature: 0.7,
                 storage: storage.clone(),
                 allowed_paths: dynamic_allowed_paths.clone(),
-                router: None,
+                router: router_config.clone(),
             })
             .expect("Failed to init placeholder engine"),
         )
