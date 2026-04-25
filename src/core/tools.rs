@@ -30,6 +30,7 @@ pub enum Tool {
     GetVehicleReport,
     GeneticsCalculate,
     ScheduleReminder,
+    ScheduleWebSearch,
     FetchUrl,
     SaveRecipe,
     ListRecipes,
@@ -319,6 +320,35 @@ impl Tool {
                             }
                         },
                         "required": ["datetime", "message"]
+                    }
+                }
+            }),
+            Tool::ScheduleWebSearch => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "schedule_web_search",
+                    "description": "Schedule a recurring reminder that performs a web search when triggered. Use for periodic information updates like sports scores, news, etc.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "message": {
+                                "type": "string",
+                                "description": "Confirmation message to show when scheduled (e.g., 'Te aviso toda segunda 8:00')"
+                            },
+                            "time": {
+                                "type": "string",
+                                "description": "Time in HH:MM format (e.g., '08:00')"
+                            },
+                            "days": {
+                                "type": "string",
+                                "description": "Days of week: 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN' or 'MON-FRI' for weekdays"
+                            },
+                            "search_query": {
+                                "type": "string",
+                                "description": "What to search for (e.g., 'resultados jogos Cruzeiro', 'notícias do bitcoin')"
+                            }
+                        },
+                        "required": ["message", "time", "days", "search_query"]
                     }
                 }
             }),
@@ -677,6 +707,7 @@ impl Tool {
             "get_vehicle_report" => Some(Tool::GetVehicleReport),
             "genetics_calculate" => Some(Tool::GeneticsCalculate),
             "schedule_reminder" => Some(Tool::ScheduleReminder),
+            "schedule_web_search" => Some(Tool::ScheduleWebSearch),
             "fetch_url" => Some(Tool::FetchUrl),
             "save_recipe" => Some(Tool::SaveRecipe),
             "list_recipes" => Some(Tool::ListRecipes),
@@ -1067,6 +1098,37 @@ impl Tool {
                 .await?;
 
                 Ok(format!("Reminder successfully scheduled (ID: {}).", id))
+            }
+            Tool::ScheduleWebSearch => {
+                let message = args["message"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'message' argument"))?;
+                let time = args["time"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'time' argument"))?;
+                let days = args["days"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'days' argument"))?;
+                let search_query = args["search_query"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing 'search_query' argument"))?;
+
+                let cron_expr = format!("{} {}", time, days);
+                let payload = serde_json::json!({
+                    "message": message,
+                    "search_query": search_query
+                }).to_string();
+
+                let id = crate::db::queries::insert_schedule(
+                    db_pool,
+                    user_id,
+                    &cron_expr,
+                    "web_search",
+                    Some(&payload),
+                )
+                .await?;
+
+                Ok(format!("Web search scheduled successfully (ID: {}).", id))
             }
             Tool::FetchUrl => {
                 let url = args["url"]
@@ -2057,6 +2119,7 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
             Tool::GetVehicleReport,
             Tool::GeneticsCalculate,
             Tool::ScheduleReminder,
+            Tool::ScheduleWebSearch,
             Tool::FetchUrl,
             Tool::SaveRecipe,
             Tool::ListRecipes,
@@ -2355,6 +2418,7 @@ mod tests {
                 task_type TEXT NOT NULL,
                 payload TEXT,
                 last_run TEXT,
+                search_query TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
