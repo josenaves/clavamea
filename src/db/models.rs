@@ -144,6 +144,7 @@ pub struct Schedule {
     pub payload: Option<String>,
     pub last_run: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub search_query: Option<String>,
 }
 
 /// A book episode (memory recorded for writing a book).
