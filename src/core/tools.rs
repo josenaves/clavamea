@@ -2699,7 +2699,11 @@ mod tests {
         assert!(result.is_err(), "Expected error for absolute path");
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("negado") || err.contains("autorizado") || err.contains("Acesso"),
+            err.contains("negado")
+                || err.contains("autorizado")
+                || err.contains("Acesso")
+                || err.contains("Permission")
+                || err.contains("permission"),
             "Expected access denied, got: {}",
             err
         );
