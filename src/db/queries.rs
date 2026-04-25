@@ -454,14 +454,16 @@ pub async fn insert_schedule(
     cron_expr: &str,
     task_type: &str,
     payload: Option<&str>,
+    search_query: Option<&str>,
 ) -> Result<i64> {
     let result = sqlx::query(
-        "INSERT INTO schedules (user_id, cron_expr, task_type, payload) VALUES (?, ?, ?, ?)",
+        "INSERT INTO schedules (user_id, cron_expr, task_type, payload, search_query) VALUES (?, ?, ?, ?, ?)",
     )
     .bind(user_id)
     .bind(cron_expr)
     .bind(task_type)
     .bind(payload)
+    .bind(search_query)
     .execute(pool)
     .await?;
 
@@ -494,6 +496,7 @@ mod tests {
                 cron_expr TEXT NOT NULL,
                 task_type TEXT NOT NULL,
                 payload TEXT,
+                search_query TEXT,
                 last_run TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id)
@@ -534,19 +537,26 @@ mod tests {
         let pool = make_pool().await;
 
         // 1. Recurring
-        insert_schedule(&pool, 1, "08:00 MON-FRI", "reminder", Some("daily"))
+        insert_schedule(&pool, 1, "08:00 MON-FRI", "reminder", Some("daily"), None)
             .await
             .unwrap();
         // 2. One-time for today — use Local::now() to match get_due_schedules behaviour
         let today_date = Local::now().format("%Y-%m-%d").to_string();
         let one_time_expr = format!("{} 10:00", today_date);
-        insert_schedule(&pool, 1, &one_time_expr, "reminder", Some("one-time"))
+        insert_schedule(&pool, 1, &one_time_expr, "reminder", Some("one-time"), None)
             .await
             .unwrap();
         // 3. One-time for the distant future
-        insert_schedule(&pool, 1, "2099-01-01 10:00", "reminder", Some("future"))
-            .await
-            .unwrap();
+        insert_schedule(
+            &pool,
+            1,
+            "2099-01-01 10:00",
+            "reminder",
+            Some("future"),
+            None,
+        )
+        .await
+        .unwrap();
 
         // recurring fires on a weekday
         let due = get_due_schedules(&pool, "08:00", "WED", "UTC")
@@ -586,7 +596,7 @@ mod tests {
     async fn test_recurring_monfri_not_treated_as_onetime() {
         let pool = make_pool().await;
 
-        insert_schedule(&pool, 1, "09:00 MON-FRI", "reminder", Some("standup"))
+        insert_schedule(&pool, 1, "09:00 MON-FRI", "reminder", Some("standup"), None)
             .await
             .unwrap();
 
@@ -623,7 +633,7 @@ mod tests {
         // Schedule a one-time reminder for today according to LOCAL date
         let local_today = Local::now().format("%Y-%m-%d").to_string();
         let expr = format!("{} 23:59", local_today);
-        insert_schedule(&pool, 1, &expr, "reminder", Some("night-owl"))
+        insert_schedule(&pool, 1, &expr, "reminder", Some("night-owl"), None)
             .await
             .unwrap();
 
@@ -647,7 +657,7 @@ mod tests {
     async fn test_last_run_prevents_refire() {
         let pool = make_pool().await;
 
-        insert_schedule(&pool, 1, "09:00 MON-FRI", "reminder", Some("daily"))
+        insert_schedule(&pool, 1, "09:00 MON-FRI", "reminder", Some("daily"), None)
             .await
             .unwrap();
 
@@ -681,7 +691,7 @@ mod tests {
 
         let today_date = Local::now().format("%Y-%m-%d").to_string();
         let expr = format!("{} 11:00", today_date);
-        insert_schedule(&pool, 1, &expr, "reminder", Some("one-time"))
+        insert_schedule(&pool, 1, &expr, "reminder", Some("one-time"), None)
             .await
             .unwrap();
 

@@ -81,7 +81,8 @@ impl Engine {
         let system_prompt = format!(
             "You are ClavaMea, a helpful AI assistant. Always reply in the same language the user uses.\n\
             You have access to tools — use them when the user asks for an action.\n\
-            - schedule_reminder: for reminders, notifications, callbacks\n\
+            - schedule_reminder: for simple reminders without internet search\n\
+- schedule_web_search: for recurring reminders that search the web when triggered (sports scores, news, etc.)\n\
             - list_schedules: to list active reminders\n\
             - cancel_schedule: to cancel a reminder\n\
             - web_search: for current information\n\

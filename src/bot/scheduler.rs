@@ -427,13 +427,9 @@ async fn execute_web_search(
         let text = text.clone();
         let bot = bot.clone();
         async move {
-            crate::bot::utils::send_chunked_message(
-                &bot,
-                teloxide::types::ChatId(user_id),
-                &text,
-            )
-            .await
-            .map_err(anyhow::Error::from)
+            crate::bot::utils::send_chunked_message(&bot, teloxide::types::ChatId(user_id), &text)
+                .await
+                .map_err(anyhow::Error::from)
         }
     })
     .await?;
@@ -441,7 +437,10 @@ async fn execute_web_search(
     if is_one_time {
         info!("Deleting one-time web_search task: {}", schedule_id);
         if let Err(e) = crate::db::queries::delete_schedule(&pool, schedule_id).await {
-            error!("Failed to delete one-time web_search {}: {}", schedule_id, e);
+            error!(
+                "Failed to delete one-time web_search {}: {}",
+                schedule_id, e
+            );
         }
     } else {
         crate::db::queries::update_schedule_last_run(&pool, schedule_id).await?;

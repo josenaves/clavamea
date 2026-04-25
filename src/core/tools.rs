@@ -1094,6 +1094,7 @@ impl Tool {
                     datetime,
                     "reminder",
                     Some(message),
+                    None,
                 )
                 .await?;
 
@@ -1117,7 +1118,8 @@ impl Tool {
                 let payload = serde_json::json!({
                     "message": message,
                     "search_query": search_query
-                }).to_string();
+                })
+                .to_string();
 
                 let id = crate::db::queries::insert_schedule(
                     db_pool,
@@ -1125,6 +1127,7 @@ impl Tool {
                     &cron_expr,
                     "web_search",
                     Some(&payload),
+                    Some(&search_query),
                 )
                 .await?;
 
@@ -2925,8 +2928,15 @@ mod tests {
     #[tokio::test]
     async fn test_cancel_schedule() -> anyhow::Result<()> {
         let pool = make_test_pool().await;
-        crate::db::queries::insert_schedule(&pool, 1, "2099-01-01 08:00", "reminder", Some("test"))
-            .await?;
+        crate::db::queries::insert_schedule(
+            &pool,
+            1,
+            "2099-01-01 08:00",
+            "reminder",
+            Some("test"),
+            None,
+        )
+        .await?;
 
         let tool = Tool::CancelSchedule;
         let args = serde_json::json!({"schedule_id": 1});
@@ -2991,6 +3001,7 @@ mod tests {
             "08:00 MON-FRI",
             "reminder",
             Some("daily reminder"),
+            None,
         )
         .await?;
         crate::db::queries::insert_schedule(
@@ -2999,6 +3010,7 @@ mod tests {
             "2099-12-25 10:00",
             "reminder",
             Some("christmas"),
+            None,
         )
         .await?;
 
