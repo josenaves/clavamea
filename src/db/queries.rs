@@ -568,6 +568,64 @@ mod tests {
         assert_eq!(due[0].payload.as_deref(), Some("night-owl"));
     }
 
+    /// Regression: `last_run` with today's date must block a recurring schedule
+    /// from re-firing on the same day. This is the guard that was previously
+    /// invoked prematurely (before the message was actually sent), causing
+    /// reminders to be silently lost on network errors.
+    #[tokio::test]
+    async fn test_last_run_prevents_refire() {
+        let pool = make_pool().await;
+
+        insert_schedule(&pool, 1, "09:00 MON-FRI", "reminder", Some("daily"))
+            .await
+            .unwrap();
+
+        // Schedule should fire normally
+        let due = get_due_schedules(&pool, "09:00", "MON").await.unwrap();
+        assert_eq!(due.len(), 1, "Should fire before last_run is set");
+        let schedule_id = due[0].id;
+
+        // Simulate last_run being set to today's date (as if it already executed)
+        update_schedule_last_run(&pool, schedule_id).await.unwrap();
+
+        // Should NOT fire again on the same day
+        let due_again = get_due_schedules(&pool, "09:00", "MON").await.unwrap();
+        assert_eq!(
+            due_again.len(),
+            0,
+            "Should NOT re-fire after last_run is set to today"
+        );
+    }
+
+    /// One-time schedules must fire even if `last_run` is already set.
+    /// The `get_due_schedules` logic uses `continue` after matching one-time
+    /// events, skipping the `last_run` guard block.
+    #[tokio::test]
+    async fn test_one_time_fires_even_with_last_run() {
+        let pool = make_pool().await;
+
+        let today_date = Local::now().format("%Y-%m-%d").to_string();
+        let expr = format!("{} 11:00", today_date);
+        insert_schedule(&pool, 1, &expr, "reminder", Some("one-time"))
+            .await
+            .unwrap();
+
+        // Should fire on today's date at matching time
+        let due = get_due_schedules(&pool, "11:00", "MON").await.unwrap();
+        assert_eq!(due.len(), 1);
+        let schedule_id = due[0].id;
+
+        // Set last_run and verify it STILL fires (one-time ignores last_run)
+        update_schedule_last_run(&pool, schedule_id).await.unwrap();
+
+        let due_after = get_due_schedules(&pool, "11:00", "MON").await.unwrap();
+        assert_eq!(
+            due_after.len(),
+            1,
+            "One-time schedule should fire regardless of last_run"
+        );
+    }
+
     #[tokio::test]
     async fn test_book_writing_queries() {
         let pool = make_pool().await;
