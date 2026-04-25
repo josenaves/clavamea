@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
     // Initialize structured logging
     tracing_subscriber::fmt::init();
 
-    info!("Starting ClavaMea...");
+    info!("Starting ClavaMea v{}...", env!("CARGO_PKG_VERSION"));
 
     // Load environment variables
     let telegram_token =

@@ -33,57 +33,50 @@ pub async fn run_scheduler(state: AppState) -> anyhow::Result<()> {
 }
 
 async fn process_due_tasks(state: &AppState, time_str: &str, weekday: &str) -> anyhow::Result<()> {
-    // Fetch users so we know their timezones
-    let users = crate::db::queries::list_users(&state.db_pool).await?;
+    // Use the server's local timezone for today's date calculation.
+    // Individual user timezones only affect the datetime format the LLM uses when
+    // scheduling, not the scheduler matching logic (which compares HH:MM and dates).
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let tasks =
+        crate::db::queries::get_due_schedules(&state.db_pool, time_str, weekday, &today).await?;
 
-    for user in &users {
-        let tz = user.timezone.as_deref().unwrap_or("UTC");
-        let tasks =
-            crate::db::queries::get_due_schedules(&state.db_pool, time_str, weekday, tz).await?;
+    for task in tasks {
+        info!(
+            "Executing scheduled task: {} (Type: {})",
+            task.id, task.task_type
+        );
 
-        for task in tasks {
-            info!(
-                "Executing scheduled task: {} (Type: {})",
-                task.id, task.task_type
-            );
+        match task.task_type.as_str() {
+            "bovespa_clipping" => {
+                let state_clone = state.clone();
+                let user_id = task.user_id;
+                let schedule_id = task.id;
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        execute_bovespa_clipping(state_clone, user_id, schedule_id).await
+                    {
+                        error!("Bovespa clipping failed for user {}: {}", user_id, e);
+                    }
+                });
+            }
+            "reminder" => {
+                let state_clone = state.clone();
+                let user_id = task.user_id;
+                let payload = task.payload.clone();
+                let schedule_id = task.id;
+                let is_one_time = is_one_time_expr(&task.cron_expr);
 
-            match task.task_type.as_str() {
-                "bovespa_clipping" => {
-                    let state_clone = state.clone();
-                    let user_id = task.user_id;
-                    let schedule_id = task.id;
-                    tokio::spawn(async move {
-                        if let Err(e) =
-                            execute_bovespa_clipping(state_clone, user_id, schedule_id).await
-                        {
-                            error!("Bovespa clipping failed for user {}: {}", user_id, e);
-                        }
-                    });
-                }
-                "reminder" => {
-                    let state_clone = state.clone();
-                    let user_id = task.user_id;
-                    let payload = task.payload.clone();
-                    let schedule_id = task.id;
-                    let is_one_time = is_one_time_expr(&task.cron_expr);
-
-                    tokio::spawn(async move {
-                        if let Err(e) = execute_reminder(
-                            state_clone,
-                            user_id,
-                            payload,
-                            schedule_id,
-                            is_one_time,
-                        )
-                        .await
-                        {
-                            error!("Reminder failed for user {}: {}", user_id, e);
-                        }
-                    });
-                }
-                _ => {
-                    error!("Unknown task type: {}", task.task_type);
-                }
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        execute_reminder(state_clone, user_id, payload, schedule_id, is_one_time)
+                            .await
+                    {
+                        error!("Reminder failed for user {}: {}", user_id, e);
+                    }
+                });
+            }
+            _ => {
+                error!("Unknown task type: {}", task.task_type);
             }
         }
     }

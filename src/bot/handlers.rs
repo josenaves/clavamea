@@ -10,12 +10,10 @@ use crate::core::{
 };
 use crate::db::models::{Interaction, NewInteraction, User};
 
-/// Current bot version. Bump this string whenever new tools or features are deployed.
-/// Users will automatically receive a "What's New" notification on their next message.
-const BOT_VERSION: &str = "1.8.0";
+/// Current bot version. Bump this in Cargo.toml when deploying.
+const BOT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Changelog shown to users when the bot is updated.
-/// Update this text whenever BOT_VERSION changes.
+/// Changelog shown when user requests via /changelog or /whatsnew.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
 
 **v1\.8\.0 — Integração WhatsApp**
@@ -120,14 +118,9 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
         return Ok(());
     }
 
-    // Changelog notification: send "What's New" if user hasn't seen this version yet
+    // Track user's version silently (no auto-changelog spam)
     if let Some(ref u) = user_record {
         if u.last_seen_version != BOT_VERSION {
-            let renderer = TelegramRenderer::new();
-            let rendered_changelog = renderer.render(CHANGELOG);
-            bot.send_message(msg.chat.id, rendered_changelog)
-                .parse_mode(ParseMode::MarkdownV2)
-                .await?;
             let _ =
                 crate::db::queries::update_user_seen_version(&state.db_pool, user_id, BOT_VERSION)
                     .await;
@@ -137,7 +130,14 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
     // Handle Admin Commands
     if is_admin {
         if let Some(text) = msg.text() {
-            if text.starts_with("/users") {
+            if text.starts_with("/changelog") || text.starts_with("/whatsnew") {
+                let renderer = TelegramRenderer::new();
+                let rendered_changelog = renderer.render(CHANGELOG);
+                bot.send_message(msg.chat.id, rendered_changelog)
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .await?;
+                return Ok(());
+            } else if text.starts_with("/users") {
                 let users: Vec<User> = crate::db::queries::list_users(&state.db_pool)
                     .await
                     .unwrap_or_else(|_| Vec::new());
