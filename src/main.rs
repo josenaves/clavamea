@@ -144,7 +144,49 @@ async fn main() -> Result<()> {
 
     let router_config = crate::core::router::RouterConfig::from_env();
 
-    // Check if we have either DeepSeek config OR OpenRouter router
+    // Initialize RAG manager
+    info!("Initializing RAG manager...");
+    let rag_manager = crate::core::RagManager::new(db_pool.clone())?;
+    let rag = Arc::new(rag_manager);
+    info!("RAG manager initialized.");
+
+    // Ingest vehicles and book episodes into RAG for context search
+    let rag_ingest = rag.clone();
+    let db_pool_ingest = db_pool.clone();
+    let owner_id = env::var("OWNER_ID")
+        .unwrap_or_else(|_| "171600982".to_string())
+        .parse()
+        .unwrap_or(171600982);
+    tokio::spawn(async move {
+        if let Ok(vehicles) = crate::db::queries::get_vehicles(&db_pool_ingest, owner_id).await {
+            for v in vehicles {
+                let content = format!(
+                    "Vehicle: {} | Model: {:?} | Plate: {}",
+                    v.name,
+                    v.model,
+                    v.plate.unwrap_or_default()
+                );
+                let _ = rag_ingest
+                    .ingest_document(owner_id, "vehicles", &format!("vehicle_{}", v.id), &content)
+                    .await;
+            }
+        }
+        if let Ok(episodes) = crate::db::queries::get_book_episodes(&db_pool_ingest, owner_id).await
+        {
+            for ep in episodes {
+                let _ = rag_ingest
+                    .ingest_document(
+                        owner_id,
+                        "book_episodes",
+                        &format!("episode_{}", ep.id),
+                        &ep.content,
+                    )
+                    .await;
+            }
+        }
+    });
+
+    // Build router config
     let has_deepseek = llm_api_url.is_some() && llm_api_key.is_some();
     let has_openrouter = router_config.is_some();
 
@@ -164,6 +206,7 @@ async fn main() -> Result<()> {
             storage: storage.clone(),
             allowed_paths: dynamic_allowed_paths.clone(),
             router: router_config.clone(),
+            rag: Some(rag.clone()),
         };
         match Engine::new(config) {
             Ok(engine) => {
@@ -184,6 +227,7 @@ async fn main() -> Result<()> {
                         storage: storage.clone(),
                         allowed_paths: dynamic_allowed_paths.clone(),
                         router: router_config.clone(),
+                        rag: Some(rag.clone()),
                     })
                     .expect("Failed to init placeholder engine"),
                 )
@@ -203,16 +247,11 @@ async fn main() -> Result<()> {
                 storage: storage.clone(),
                 allowed_paths: dynamic_allowed_paths.clone(),
                 router: router_config.clone(),
+                rag: Some(rag.clone()),
             })
             .expect("Failed to init placeholder engine"),
         )
     };
-
-    // Initialize RAG manager
-    info!("Initializing RAG manager...");
-    let rag_manager = crate::core::RagManager::new(db_pool.clone())?;
-    let rag = Arc::new(rag_manager);
-    info!("RAG manager initialized.");
 
     // Initialize Wasm runtime
     info!("Initializing Wasm runtime...");

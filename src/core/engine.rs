@@ -1,4 +1,5 @@
 use crate::core::memory::{ConversationMemory, Message, ToolCall};
+use crate::core::rag::RagManager;
 use crate::core::router::RouterConfig;
 use crate::core::storage::MemoryStorage;
 use crate::core::tools::Tool;
@@ -25,6 +26,7 @@ pub struct EngineConfig {
     pub storage: Arc<MemoryStorage>,
     pub allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
     pub router: Option<RouterConfig>,
+    pub rag: Option<Arc<RagManager>>,
 }
 
 /// Main LLM engine struct.
@@ -32,6 +34,7 @@ pub struct Engine {
     config: EngineConfig,
     client: reqwest::Client,
     pub storage: Arc<MemoryStorage>,
+    pub rag: Option<Arc<RagManager>>,
     pub allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
 }
 
@@ -48,11 +51,13 @@ impl Engine {
             .build()?;
         let storage = config.storage.clone();
         let allowed_paths = config.allowed_paths.clone();
+        let rag = config.rag.clone();
         Ok(Self {
             config,
             client,
             storage,
             allowed_paths,
+            rag,
         })
     }
 
@@ -68,6 +73,23 @@ impl Engine {
         model_override: Option<&str>,
     ) -> Result<LLMResponse> {
         let memory_context = self.storage.build_context_string(user_id);
+
+        // RAG search for relevant DB data
+        let mut rag_context = String::new();
+        if let Some(rag) = &self.rag {
+            if let Ok(results) = rag
+                .search(user_id, "vehicle car book episodes writing chapters", 5)
+                .await
+            {
+                if !results.is_empty() {
+                    rag_context = format!(
+                        "\n--- RELEVANT DATABASE DATA ---\n{}\n\n",
+                        results.join("\n\n")
+                    );
+                }
+            }
+        }
+
         let current_time = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S %Z")
             .to_string();
@@ -92,9 +114,8 @@ impl Engine {
             For casual conversation or questions, reply with text normally.\n\
             DO NOT use Markdown tables — use bulleted lists or bold text instead.\n\
             \n\
-            The current time is: {}{}.\n\n\
-            {}",
-            current_time, tz_info, memory_context
+            The current time is: {}{}.\n\n{}\n\n{}",
+            current_time, tz_info, rag_context, memory_context
         );
 
         let mut msgs = vec![serde_json::json!({
