@@ -139,29 +139,7 @@ impl Engine {
             if model_override.is_some() {
                 model_override.unwrap_or(&self.config.model).to_string()
             } else {
-                let prompt_len = msgs
-                    .iter()
-                    .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
-                    .map(|s| s.len())
-                    .sum::<usize>();
-                let tool_count = tools.len();
-                let request_type = crate::core::router::analyze_request(prompt_len, tool_count, 0);
-                match router_config.select_model(request_type) {
-                    Some(selected) => {
-                        tracing::info!(
-                            "Using router model: {} (request_type: {:?})",
-                            selected,
-                            request_type
-                        );
-                        selected
-                    }
-                    None => {
-                        tracing::error!("No available models - all blacklisted");
-                        return Err(anyhow::anyhow!(
-                            "All models are temporarily unavailable. Try again later."
-                        ));
-                    }
-                }
+                router_config.models[0].clone()
             }
         } else {
             model_override.unwrap_or(&self.config.model).to_string()
@@ -202,74 +180,45 @@ impl Engine {
             }
         }
 
-        // Make API request with fallback on 429 + exponential backoff
+        // OpenRouter native fallback via extra_body["models"]
         let res = if let Some(router_config) = &self.config.router {
             let models = &router_config.models;
-            let mut result_res: Option<reqwest::Response> = None;
-            let base_timeout = std::time::Duration::from_secs(15);
+            let primary = &models[0];
+            let fallbacks = &models[1..];
 
-            for (i, model_attempt) in models.iter().enumerate() {
-                payload["model"] = serde_json::json!(model_attempt);
-                tracing::info!(
-                    "Trying model: {} (attempt {}/{})",
-                    model_attempt,
-                    i + 1,
-                    models.len()
-                );
-
-                let attempt_timeout = base_timeout * 2u32.pow(i as u32);
-                let client = reqwest::Client::builder()
-                    .timeout(attempt_timeout)
-                    .connect_timeout(std::time::Duration::from_secs(10))
-                    .build()?;
-
-                let res = client
-                    .post(&endpoint)
-                    .bearer_auth(&api_key)
-                    .json(&payload)
-                    .send()
-                    .await?;
-
-                if res.status() == 429 {
-                    tracing::warn!("Rate limited on model {}, trying next", model_attempt);
-                    let err_msg = format!("Rate limited on model {}", model_attempt);
-                    if i + 1 < models.len() {
-                        continue;
-                    } else {
-                        return Err(anyhow::anyhow!("Rate limited on all models: {}", err_msg));
-                    }
-                }
-
-                // Also fallback on 4xx errors (bad request, etc)
-                if res.status().is_client_error() {
-                    let status = res.status();
-                    let _text = res.text().await.unwrap_or_default();
-                    tracing::error!(
-                        "Client error {} on model {}, trying next",
-                        status,
-                        model_attempt
-                    );
-                    if let Some(router_config) = &self.config.router {
-                        router_config.blacklist_model(model_attempt);
-                    }
-                    if i + 1 < models.len() {
-                        continue;
-                    } else {
-                        return Err(anyhow::anyhow!("All models failed with client errors"));
-                    }
-                }
-
-                if !res.status().is_success() && !res.status().is_client_error() {
-                    let status = res.status();
-                    let text = res.text().await.unwrap_or_default();
-                    tracing::error!("LLM API error {}: {}", status, text);
-                    return Err(anyhow::anyhow!("LLM API error {}: {}", status, text));
-                }
-
-                result_res = Some(res);
-                break;
+            payload["model"] = serde_json::json!(primary);
+            if !fallbacks.is_empty() {
+                payload["extra_body"] = serde_json::json!({
+                    "models": fallbacks
+                });
             }
-            result_res.unwrap()
+
+            tracing::info!("Requesting {} with fallbacks: {:?}", primary, fallbacks);
+
+            let res = self
+                .client
+                .post(&endpoint)
+                .bearer_auth(&api_key)
+                .timeout(std::time::Duration::from_secs(60))
+                .json(&payload)
+                .send()
+                .await?;
+
+            if res.status().is_client_error() {
+                let status = res.status();
+                let text = res.text().await.unwrap_or_default();
+                tracing::error!("LLM API error {}: {}", status, text);
+                return Err(anyhow::anyhow!("LLM API error {}: {}", status, text));
+            }
+
+            if !res.status().is_success() {
+                let status = res.status();
+                let text = res.text().await.unwrap_or_default();
+                tracing::error!("LLM API error {}: {}", status, text);
+                return Err(anyhow::anyhow!("LLM API error {}: {}", status, text));
+            }
+
+            res
         } else {
             self.client
                 .post(&endpoint)
@@ -284,19 +233,10 @@ impl Engine {
 
         // Check for empty response
         if res_text.is_empty() {
-            if let Some(router_config) = &self.config.router {
-                tracing::error!("Empty response from {}, blacklisting for 15 min", model);
-                router_config.blacklist_model(&model);
-            }
             return Err(anyhow::anyhow!("Empty response from model"));
         }
 
         let data: Value = serde_json::from_str(&res_text).map_err(|e| {
-            // Blacklist on parse error
-            if let Some(router_config) = &self.config.router {
-                tracing::error!("Parse error from {}, blacklisting for 15 min: {}", model, e);
-                router_config.blacklist_model(&model);
-            }
             anyhow::anyhow!("Failed to parse LLM response: {} | body: {}", e, res_text)
         })?;
         let message = &data["choices"][0]["message"];
