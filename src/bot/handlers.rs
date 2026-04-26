@@ -318,7 +318,8 @@ async fn handle_message_internal(
         memory.add_message(MemoryMessage::user(text.to_string()));
 
         // Available tools for Phase 3 (WebSearch + FileReader + Memory + RAG)
-        let tools = get_available_tools(3);
+        let tools = crate::core::tools::get_available_tools(3);
+        let tools = filter_tools_for_user(tools, is_admin);
         let mut turn = 0;
         let max_turns = 20;
 
@@ -486,4 +487,41 @@ pub async fn handle_help(bot: Bot, msg: TgMessage, _state: AppState) -> Response
         .await?;
 
     Ok(())
+}
+
+/// Filter tools based on user roles
+fn filter_tools_for_user(
+    tools: Vec<crate::core::tools::Tool>,
+    is_admin: bool,
+) -> Vec<crate::core::tools::Tool> {
+    let mut filtered = tools;
+    if !is_admin {
+        filtered.retain(|t| !matches!(t, crate::core::tools::Tool::UpdateServer));
+    }
+    filtered
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::tools::Tool;
+
+    #[test]
+    fn test_filter_tools_for_admin() {
+        let tools = vec![Tool::WebSearch, Tool::UpdateServer, Tool::FileReader];
+        let filtered = filter_tools_for_user(tools, true);
+
+        assert_eq!(filtered.len(), 3);
+        assert!(filtered.iter().any(|t| matches!(t, Tool::UpdateServer)));
+    }
+
+    #[test]
+    fn test_filter_tools_for_non_admin() {
+        let tools = vec![Tool::WebSearch, Tool::UpdateServer, Tool::FileReader];
+        let filtered = filter_tools_for_user(tools, false);
+
+        assert_eq!(filtered.len(), 2);
+        assert!(!filtered.iter().any(|t| matches!(t, Tool::UpdateServer)));
+        assert!(filtered.iter().any(|t| matches!(t, Tool::WebSearch)));
+    }
 }

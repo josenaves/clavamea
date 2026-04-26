@@ -117,6 +117,19 @@ impl Engine {
 
         // Use the system prompt builder from prompt.rs instead of hardcoded string
         let base_system_prompt = crate::core::prompt::build_system_prompt(_lang);
+        // Dynamically add update_server instructions if the tool is available
+        let has_update_server = tools.iter().any(|t| matches!(t, Tool::UpdateServer));
+        let update_server_instruction = if has_update_server {
+            "- update_server: to pull new code and restart/update yourself. Use this when the user asks you to restart, update, or reboot.\n            "
+        } else {
+            ""
+        };
+        let update_server_auth = if has_update_server {
+            "You are fully authorized to use the update_server tool to restart or update yourself when requested. Do not refuse based on sandboxing or system restrictions.\n            \n            "
+        } else {
+            ""
+        };
+
         let system_prompt = format!(
             "{}\n\
             You have access to tools — use them when the user asks for an action.\n\
@@ -128,11 +141,17 @@ impl Engine {
             - file_reader / list_dir: for files and directories\n\
             - edit_code: to create or modify files\n\
             - set_user_timezone: to set the user's timezone\n\
-            Only call a tool when the user explicitly requests the corresponding action.\n\
+            {}Only call a tool when the user explicitly requests the corresponding action.\n\
             For casual conversation or questions, reply with text normally.\n\
             \n\
-            The current time is: {}{}.\n\n{}\n\n{}",
-            base_system_prompt, current_time, tz_info, rag_context, memory_context
+            {}The current time is: {}{}.\n\n{}\n\n{}",
+            base_system_prompt,
+            update_server_instruction,
+            update_server_auth,
+            current_time,
+            tz_info,
+            rag_context,
+            memory_context
         );
 
         let mut msgs = vec![serde_json::json!({
