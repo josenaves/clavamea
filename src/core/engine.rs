@@ -1,6 +1,6 @@
 use crate::core::memory::{ConversationMemory, Message, ToolCall};
 use crate::core::rag::RagManager;
-use crate::core::router::RouterConfig;
+use crate::core::router::{RequestType, RouterConfig, analyze_request};
 use crate::core::storage::MemoryStorage;
 use crate::core::tools::Tool;
 use anyhow::Result;
@@ -27,6 +27,11 @@ pub struct EngineConfig {
     pub allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
     pub router: Option<RouterConfig>,
     pub rag: Option<Arc<RagManager>>,
+    /// NVIDIA-specific configuration
+    pub nvidia_model_pro: Option<String>,
+    pub nvidia_model_flash: Option<String>,
+    pub nvidia_max_tokens: Option<u32>,
+    pub nvidia_temperature: Option<f32>,
 }
 
 /// Main LLM engine struct.
@@ -143,23 +148,92 @@ impl Engine {
         msgs.extend(memory.to_api_messages());
 
         let model = if let Some(router_config) = &self.config.router {
+            // Using OpenRouter/router
             if model_override.is_some() {
                 model_override.unwrap_or(&self.config.model).to_string()
             } else {
                 router_config.models[0].clone()
             }
+        } else if self.config.nvidia_model_pro.is_some() || self.config.nvidia_model_flash.is_some()
+        {
+            // Using NVIDIA API with intelligent model selection
+            if let Some(over) = model_override {
+                over.to_string()
+            } else {
+                // Determine request type based on turn, prompt length and tools
+                let prompt_len = memory
+                    .messages
+                    .last()
+                    .and_then(|m| m.content.as_ref())
+                    .map(|c| c.len())
+                    .unwrap_or(0);
+
+                // For the turn count, we look at how many assistant messages are in memory
+                let turn = memory
+                    .messages
+                    .iter()
+                    .filter(|m| matches!(m.role, crate::core::memory::Role::Assistant))
+                    .count();
+
+                let request_type = analyze_request(prompt_len, tools.len(), turn);
+
+                match request_type {
+                    RequestType::Complex => self
+                        .config
+                        .nvidia_model_pro
+                        .as_deref()
+                        .unwrap_or(&self.config.model)
+                        .to_string(),
+                    RequestType::Simple => self
+                        .config
+                        .nvidia_model_flash
+                        .as_deref()
+                        .unwrap_or(&self.config.model)
+                        .to_string(),
+                }
+            }
         } else {
+            // Direct API (DeepSeek or other)
             model_override.unwrap_or(&self.config.model).to_string()
         };
+
+        // Determine if we're using NVIDIA API for special parameters
+        let is_nvidia = self.config.api_url.contains("integrate.api.nvidia.com");
 
         let mut payload = serde_json::json!({
             "model": model,
             "messages": msgs,
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
-            "thinking": { "type": "disabled" },
             "tool_choice": "auto",
         });
+
+        // Add thinking/reasoning parameters for NVIDIA models
+        if is_nvidia {
+            // For NVIDIA API, we use extra_body for chat_template_kwargs
+            // Check if we have NVIDIA-specific model configuration
+            let model_flash = self.config.nvidia_model_flash.as_deref();
+
+            // Determine if we should enable thinking based on model type
+            let use_thinking = if let Some(flash) = model_flash {
+                // For flash models, enable thinking with high reasoning effort
+                model.contains(flash)
+            } else {
+                // Default to disabled or specifically for pro models if needed
+                false
+            };
+
+            payload["extra_body"] = serde_json::json!({
+                "chat_template_kwargs": {
+                    "thinking": use_thinking,
+                    // Add reasoning_effort for thinking models
+                    "reasoning_effort": if use_thinking { "high" } else { "" }
+                }
+            });
+        } else {
+            // Default thinking disabled for non-NVIDIA APIs (OpenRouter/DeepSeek)
+            payload["thinking"] = serde_json::json!({ "type": "disabled" });
+        }
 
         // Add tools if available
         if !tools.is_empty() {

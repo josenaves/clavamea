@@ -66,6 +66,20 @@ async fn main() -> Result<()> {
         .parse::<f32>()
         .expect("LLM_TEMPERATURE must be a valid float");
 
+    // NVIDIA API Configuration (Free models via NVIDIA API Catalog)
+    let nvidia_api_url = env::var("NVIDIA_API_URL").ok();
+    let nvidia_api_key = env::var("NVIDIA_API_KEY").ok();
+    let nvidia_model_pro = env::var("NVIDIA_MODEL_PRO").ok();
+    let nvidia_model_flash = env::var("NVIDIA_MODEL_FLASH").ok();
+    let nvidia_max_tokens = env::var("NVIDIA_MAX_TOKENS")
+        .unwrap_or_else(|_| "4096".to_string())
+        .parse::<u32>()
+        .ok();
+    let nvidia_temperature = env::var("NVIDIA_TEMPERATURE")
+        .unwrap_or_else(|_| "0.7".to_string())
+        .parse::<f32>()
+        .ok();
+
     let allowed_paths_raw = env::var("ALLOWED_ORGANIZE_PATHS").unwrap_or_default();
     let allowed_paths: Vec<String> = allowed_paths_raw
         .split(',')
@@ -186,11 +200,129 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Build router config
+    // Determine which LLM API to use (priority: NVIDIA > DeepSeek > OpenRouter > placeholder)
+    let has_nvidia = nvidia_api_url.is_some() && nvidia_api_key.is_some();
     let has_deepseek = llm_api_url.is_some() && llm_api_key.is_some();
     let has_openrouter = router_config.is_some();
+    let llm_provider = env::var("LLM_PROVIDER")
+        .unwrap_or_else(|_| "auto".to_string())
+        .to_lowercase();
 
-    let engine = if has_deepseek || has_openrouter {
+    let engine = if (llm_provider == "auto" || llm_provider == "nvidia") && has_nvidia {
+        // Use NVIDIA API
+        let api_url =
+            nvidia_api_url.unwrap_or_else(|| "https://integrate.api.nvidia.com/v1".to_string());
+        let api_key = nvidia_api_key.unwrap_or_else(|| "dummy".to_string());
+
+        let config = EngineConfig {
+            api_url,
+            api_key,
+            model: llm_model.clone(), // fallback model
+            model_pro: nvidia_model_pro.clone(),
+            model_flash: nvidia_model_flash.clone(),
+            max_tokens: nvidia_max_tokens.unwrap_or(llm_max_tokens),
+            temperature: nvidia_temperature.unwrap_or(llm_temperature),
+            storage: storage.clone(),
+            allowed_paths: dynamic_allowed_paths.clone(),
+            router: None, // NVIDIA doesn't use the router (we handle model selection ourselves)
+            rag: Some(rag.clone()),
+            nvidia_model_pro: nvidia_model_pro.clone(),
+            nvidia_model_flash: nvidia_model_flash.clone(),
+            nvidia_max_tokens,
+            nvidia_temperature,
+        };
+        match Engine::new(config) {
+            Ok(engine) => {
+                info!("LLM engine initialized with NVIDIA API.");
+                Arc::new(engine)
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to initialize LLM engine with NVIDIA: {}. Trying fallbacks.",
+                    e
+                );
+                // Fall through to DeepSeek/OpenRouter
+                drop(e); // suppress unused variable warning
+                if has_deepseek || has_openrouter {
+                    // Default to OpenRouter URL if only using router
+                    let api_url =
+                        llm_api_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
+                    let api_key = llm_api_key.unwrap_or_else(|| "dummy".to_string());
+
+                    let config = EngineConfig {
+                        api_url,
+                        api_key,
+                        model: llm_model.clone(),
+                        model_pro: llm_model_pro.clone(),
+                        model_flash: llm_model_flash.clone(),
+                        max_tokens: llm_max_tokens,
+                        temperature: llm_temperature,
+                        storage: storage.clone(),
+                        allowed_paths: dynamic_allowed_paths.clone(),
+                        router: router_config.clone(),
+                        rag: Some(rag.clone()),
+                        nvidia_model_pro: None,
+                        nvidia_model_flash: None,
+                        nvidia_max_tokens: None,
+                        nvidia_temperature: None,
+                    };
+                    match Engine::new(config) {
+                        Ok(engine) => {
+                            info!("LLM engine initialized with API (fallback).");
+                            Arc::new(engine)
+                        }
+                        Err(e) => {
+                            warn!("Failed to initialize LLM engine: {}. Using placeholder.", e);
+                            Arc::new(
+                                Engine::new(EngineConfig {
+                                    api_url: "placeholder".to_string(),
+                                    api_key: "placeholder".to_string(),
+                                    model: "placeholder".to_string(),
+                                    model_pro: None,
+                                    model_flash: None,
+                                    max_tokens: 4096,
+                                    temperature: 0.7,
+                                    storage: storage.clone(),
+                                    allowed_paths: dynamic_allowed_paths.clone(),
+                                    router: router_config.clone(),
+                                    rag: Some(rag.clone()),
+                                    nvidia_model_pro: None,
+                                    nvidia_model_flash: None,
+                                    nvidia_max_tokens: None,
+                                    nvidia_temperature: None,
+                                })
+                                .expect("Failed to init placeholder engine"),
+                            )
+                        }
+                    }
+                } else {
+                    warn!("LLM API configuration not found. Using placeholder engine.");
+                    Arc::new(
+                        Engine::new(EngineConfig {
+                            api_url: "placeholder".to_string(),
+                            api_key: "placeholder".to_string(),
+                            model: "placeholder".to_string(),
+                            model_pro: None,
+                            model_flash: None,
+                            max_tokens: 4096,
+                            temperature: 0.7,
+                            storage: storage.clone(),
+                            allowed_paths: dynamic_allowed_paths.clone(),
+                            router: router_config.clone(),
+                            rag: Some(rag.clone()),
+                            nvidia_model_pro: None,
+                            nvidia_model_flash: None,
+                            nvidia_max_tokens: None,
+                            nvidia_temperature: None,
+                        })
+                        .expect("Failed to init placeholder engine"),
+                    )
+                }
+            }
+        }
+    } else if (llm_provider == "auto" || llm_provider == "deepseek" || llm_provider == "openrouter")
+        && (has_openrouter || has_deepseek)
+    {
         // Default to OpenRouter URL if only using router
         let api_url = llm_api_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
         let api_key = llm_api_key.unwrap_or_else(|| "dummy".to_string());
@@ -207,6 +339,10 @@ async fn main() -> Result<()> {
             allowed_paths: dynamic_allowed_paths.clone(),
             router: router_config.clone(),
             rag: Some(rag.clone()),
+            nvidia_model_pro: None,
+            nvidia_model_flash: None,
+            nvidia_max_tokens: None,
+            nvidia_temperature: None,
         };
         match Engine::new(config) {
             Ok(engine) => {
@@ -228,6 +364,10 @@ async fn main() -> Result<()> {
                         allowed_paths: dynamic_allowed_paths.clone(),
                         router: router_config.clone(),
                         rag: Some(rag.clone()),
+                        nvidia_model_pro: None,
+                        nvidia_model_flash: None,
+                        nvidia_max_tokens: None,
+                        nvidia_temperature: None,
                     })
                     .expect("Failed to init placeholder engine"),
                 )
@@ -248,6 +388,10 @@ async fn main() -> Result<()> {
                 allowed_paths: dynamic_allowed_paths.clone(),
                 router: router_config.clone(),
                 rag: Some(rag.clone()),
+                nvidia_model_pro: None,
+                nvidia_model_flash: None,
+                nvidia_max_tokens: None,
+                nvidia_temperature: None,
             })
             .expect("Failed to init placeholder engine"),
         )

@@ -16,6 +16,11 @@ const BOT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Changelog shown when user requests via /changelog or /whatsnew.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
 
+**v1\.11\.0 — Modelos NVIDIA Gratuitos**
+• **NVIDIA NIM\!** Agora o ClavaMea suporta modelos gratuitos da NVIDIA \(como DeepSeek V3/R1\)\.
+• **Seleção Inteligente\!** O bot decide automaticamente entre modelos PRO e FLASH baseado no turno e na complexidade da tarefa\.
+• **Controle de Provedor\!** Escolha entre NVIDIA, OpenRouter ou DeepSeek via `LLM_PROVIDER`\.
+
 **v1\.8\.0 — Integração WhatsApp**
 • **WhatsApp\!** Agora o ClavaMea pode ser acessado pelo WhatsApp via ponte com o WhatsApp Web\.
 • Mesmas ferramentas e inteligência do Telegram, agora no mensageiro mais popular do Brasil\.
