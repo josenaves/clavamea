@@ -32,6 +32,11 @@ pub struct EngineConfig {
     pub nvidia_model_flash: Option<String>,
     pub nvidia_max_tokens: Option<u32>,
     pub nvidia_temperature: Option<f32>,
+    /// Fallback API configuration (DeepSeek or other)
+    pub fallback_api_url: Option<String>,
+    pub fallback_api_key: Option<String>,
+    pub fallback_model_pro: Option<String>,
+    pub fallback_model_flash: Option<String>,
 }
 
 /// Main LLM engine struct.
@@ -261,78 +266,186 @@ impl Engine {
             }
         }
 
-        // OpenRouter native fallback via extra_body["models"]
-        let res = if let Some(router_config) = &self.config.router {
+        let mut current_payload = payload.clone();
+
+        // OpenRouter specific payload adjustments
+        if let Some(router_config) = &self.config.router {
             let models = &router_config.models;
-            let primary = &models[0];
-            let fallbacks = &models[1..];
+            if !models.is_empty() {
+                let primary = &models[0];
+                let fallbacks = &models[1..];
+                current_payload["model"] = serde_json::json!(primary);
+                if !fallbacks.is_empty() {
+                    current_payload["extra_body"] = serde_json::json!({
+                        "models": fallbacks
+                    });
+                }
+                tracing::info!(
+                    "Requesting {} via OpenRouter with fallbacks: {:?}",
+                    primary,
+                    fallbacks
+                );
+            }
+        }
 
-            payload["model"] = serde_json::json!(primary);
-            if !fallbacks.is_empty() {
-                payload["extra_body"] = serde_json::json!({
-                    "models": fallbacks
-                });
+        let mut current_endpoint = endpoint;
+        let mut current_api_key = api_key;
+        let mut is_fallback = false;
+
+        let mut retry_count = 0;
+        let max_retries = 2;
+        let mut last_error_msg = String::from("No request made yet");
+
+        loop {
+            if retry_count > 0 {
+                tracing::info!(
+                    "Retrying LLM request (retry {}/{}) due to: {}",
+                    retry_count,
+                    max_retries,
+                    last_error_msg
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(500 * retry_count as u64))
+                    .await;
             }
 
-            tracing::info!("Requesting {} with fallbacks: {:?}", primary, fallbacks);
-
-            let res = self
+            let res_result = self
                 .client
-                .post(&endpoint)
-                .bearer_auth(&api_key)
-                .timeout(std::time::Duration::from_secs(60))
-                .json(&payload)
+                .post(&current_endpoint)
+                .bearer_auth(&current_api_key)
+                .json(&current_payload)
                 .send()
-                .await?;
+                .await;
 
-            if res.status().is_client_error() {
-                let status = res.status();
-                let text = res.text().await.unwrap_or_default();
-                tracing::error!("LLM API error {}: {}", status, text);
-                return Err(anyhow::anyhow!("LLM API error {}: {}", status, text));
+            match res_result {
+                Ok(res) => {
+                    let status = res.status();
+                    if status.is_success() {
+                        let res_text = res.text().await.unwrap_or_default();
+                        tracing::debug!("LLM raw response: {}", res_text);
+
+                        if res_text.is_empty() {
+                            return Err(anyhow::anyhow!("Empty response from model"));
+                        }
+
+                        let data: Value = serde_json::from_str(&res_text).map_err(|e| {
+                            anyhow::anyhow!(
+                                "Failed to parse LLM response: {} | body: {}",
+                                e,
+                                res_text
+                            )
+                        })?;
+
+                        let message = &data["choices"][0]["message"];
+
+                        if let Some(tool_calls) = message["tool_calls"].as_array() {
+                            let calls: Vec<ToolCall> =
+                                serde_json::from_value(serde_json::json!(tool_calls))?;
+                            return Ok(LLMResponse::ToolCalls(calls));
+                        }
+
+                        let content = message["content"]
+                            .as_str()
+                            .unwrap_or("Sorry, I could not generate a response.")
+                            .to_string();
+
+                        return Ok(LLMResponse::Text(content));
+                    } else if (status.is_server_error() || status.as_u16() == 429)
+                        && retry_count < max_retries
+                    {
+                        // 5xx or 429: retry
+                        last_error_msg = format!("HTTP {}", status);
+                        retry_count += 1;
+                        continue;
+                    } else {
+                        // Other error or no more retries
+                        let err_text = res.text().await.unwrap_or_default();
+                        last_error_msg = format!("HTTP {}: {}", status, err_text);
+                    }
+                }
+                Err(e) => {
+                    if retry_count < max_retries {
+                        last_error_msg = format!("Network error: {}", e);
+                        retry_count += 1;
+                        continue;
+                    }
+                    last_error_msg = format!("Network error: {}", e);
+                }
             }
 
-            if !res.status().is_success() {
-                let status = res.status();
-                let text = res.text().await.unwrap_or_default();
-                tracing::error!("LLM API error {}: {}", status, text);
-                return Err(anyhow::anyhow!("LLM API error {}: {}", status, text));
+            // If we're here, the request failed after retries (or was a non-retryable error)
+            if !is_fallback && self.config.fallback_api_url.is_some() {
+                tracing::warn!(
+                    "Primary LLM provider failed ({}). Trying fallback...",
+                    last_error_msg
+                );
+                is_fallback = true;
+                retry_count = 0; // Reset retries for fallback
+
+                // Setup fallback configuration
+                let f_url = self.config.fallback_api_url.clone().unwrap();
+                let f_key = self.config.fallback_api_key.clone().unwrap();
+
+                // Build fallback endpoint
+                let mut f_endpoint = f_url;
+                if !f_endpoint.ends_with("/chat/completions") {
+                    if f_endpoint.ends_with("/") {
+                        f_endpoint.push_str("chat/completions");
+                    } else {
+                        f_endpoint.push_str("/chat/completions");
+                    }
+                }
+
+                current_endpoint = f_endpoint;
+                current_api_key = f_key;
+
+                // Adjust payload for fallback (DeepSeek/OpenRouter)
+                // 1. Remove NVIDIA specific parameters
+                current_payload
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("extra_body");
+                // 2. Disable thinking (default for fallback)
+                current_payload["thinking"] = serde_json::json!({ "type": "disabled" });
+
+                // 3. Determine fallback model
+                let f_model = if let Some(over) = model_override {
+                    over.to_string()
+                } else {
+                    // Re-analyze for fallback model names
+                    let prompt_len = memory
+                        .messages
+                        .last()
+                        .and_then(|m| m.content.as_ref())
+                        .map(|c| c.len())
+                        .unwrap_or(0);
+                    let turn = memory
+                        .messages
+                        .iter()
+                        .filter(|m| matches!(m.role, crate::core::memory::Role::Assistant))
+                        .count();
+                    let request_type = analyze_request(prompt_len, tools.len(), turn);
+
+                    match request_type {
+                        RequestType::Complex => self
+                            .config
+                            .fallback_model_pro
+                            .clone()
+                            .unwrap_or_else(|| self.config.model.clone()),
+                        RequestType::Simple => self
+                            .config
+                            .fallback_model_flash
+                            .clone()
+                            .unwrap_or_else(|| self.config.model.clone()),
+                    }
+                };
+                current_payload["model"] = serde_json::json!(f_model);
+
+                continue;
             }
 
-            res
-        } else {
-            self.client
-                .post(&endpoint)
-                .bearer_auth(&api_key)
-                .json(&payload)
-                .send()
-                .await?
-        };
-
-        let res_text = res.text().await.unwrap_or_default();
-        tracing::debug!("LLM raw response: {}", res_text);
-
-        // Check for empty response
-        if res_text.is_empty() {
-            return Err(anyhow::anyhow!("Empty response from model"));
+            // No more options, return the error
+            return Err(anyhow::anyhow!("LLM Error: {}", last_error_msg));
         }
-
-        let data: Value = serde_json::from_str(&res_text).map_err(|e| {
-            anyhow::anyhow!("Failed to parse LLM response: {} | body: {}", e, res_text)
-        })?;
-        let message = &data["choices"][0]["message"];
-
-        if let Some(tool_calls) = message["tool_calls"].as_array() {
-            let calls: Vec<ToolCall> = serde_json::from_value(serde_json::json!(tool_calls))?;
-            return Ok(LLMResponse::ToolCalls(calls));
-        }
-
-        let content = message["content"]
-            .as_str()
-            .unwrap_or("Sorry, I could not generate a response.")
-            .to_string();
-
-        Ok(LLMResponse::Text(content))
     }
 
     /// Generate a response with tool calling support.

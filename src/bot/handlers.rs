@@ -16,7 +16,12 @@ const BOT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Changelog shown when user requests via /changelog or /whatsnew.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
 
-**v1\.11\.0 — Modelos NVIDIA Gratuitos**
+**v1\.12\.0 — Automação de Infraestrutura**
+• **Auto\-atualização\!** Admins agora podem solicitar que o bot se atualize no servidor via chat\.
+• O bot realiza o `pull` das novas imagens e reinicia os containers automaticamente\.
+• Ferramenta: `update_server`\.
+
+**v1.11.0 — Modelos NVIDIA Gratuitos**
 • **NVIDIA NIM\!** Agora o ClavaMea suporta modelos gratuitos da NVIDIA \(como DeepSeek V3/R1\)\.
 • **Seleção Inteligente\!** O bot decide automaticamente entre modelos PRO e FLASH baseado no turno e na complexidade da tarefa\.
 • **Controle de Provedor\!** Escolha entre NVIDIA, OpenRouter ou DeepSeek via `LLM_PROVIDER`\.

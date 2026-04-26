@@ -230,6 +230,10 @@ async fn main() -> Result<()> {
             nvidia_model_flash: nvidia_model_flash.clone(),
             nvidia_max_tokens,
             nvidia_temperature,
+            fallback_api_url: llm_api_url.clone(),
+            fallback_api_key: llm_api_key.clone(),
+            fallback_model_pro: llm_model_pro.clone(),
+            fallback_model_flash: llm_model_flash.clone(),
         };
         match Engine::new(config) {
             Ok(engine) => {
@@ -265,6 +269,10 @@ async fn main() -> Result<()> {
                         nvidia_model_flash: None,
                         nvidia_max_tokens: None,
                         nvidia_temperature: None,
+                        fallback_api_url: None,
+                        fallback_api_key: None,
+                        fallback_model_pro: None,
+                        fallback_model_flash: None,
                     };
                     match Engine::new(config) {
                         Ok(engine) => {
@@ -290,6 +298,10 @@ async fn main() -> Result<()> {
                                     nvidia_model_flash: None,
                                     nvidia_max_tokens: None,
                                     nvidia_temperature: None,
+                                    fallback_api_url: None,
+                                    fallback_api_key: None,
+                                    fallback_model_pro: None,
+                                    fallback_model_flash: None,
                                 })
                                 .expect("Failed to init placeholder engine"),
                             )
@@ -314,6 +326,10 @@ async fn main() -> Result<()> {
                             nvidia_model_flash: None,
                             nvidia_max_tokens: None,
                             nvidia_temperature: None,
+                            fallback_api_url: None,
+                            fallback_api_key: None,
+                            fallback_model_pro: None,
+                            fallback_model_flash: None,
                         })
                         .expect("Failed to init placeholder engine"),
                     )
@@ -343,6 +359,10 @@ async fn main() -> Result<()> {
             nvidia_model_flash: None,
             nvidia_max_tokens: None,
             nvidia_temperature: None,
+            fallback_api_url: None,
+            fallback_api_key: None,
+            fallback_model_pro: None,
+            fallback_model_flash: None,
         };
         match Engine::new(config) {
             Ok(engine) => {
@@ -368,6 +388,10 @@ async fn main() -> Result<()> {
                         nvidia_model_flash: None,
                         nvidia_max_tokens: None,
                         nvidia_temperature: None,
+                        fallback_api_url: None,
+                        fallback_api_key: None,
+                        fallback_model_pro: None,
+                        fallback_model_flash: None,
                     })
                     .expect("Failed to init placeholder engine"),
                 )
@@ -392,6 +416,10 @@ async fn main() -> Result<()> {
                 nvidia_model_flash: None,
                 nvidia_max_tokens: None,
                 nvidia_temperature: None,
+                fallback_api_url: None,
+                fallback_api_key: None,
+                fallback_model_pro: None,
+                fallback_model_flash: None,
             })
             .expect("Failed to init placeholder engine"),
         )

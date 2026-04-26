@@ -515,7 +515,7 @@ checksum = "bb7bdea464ae038f09197b82430b921c53619fc8d2bcaf7b151013b3ca008017"
 
 [[package]]
 name = "clavamea"
-version = "1.11.0"
+version = "1.12.0"
 dependencies = [
  "anyhow",
  "async-trait",

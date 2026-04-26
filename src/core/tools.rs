@@ -47,6 +47,7 @@ pub enum Tool {
     SetUserTimezone,
     CancelSchedule,
     ListSchedules,
+    UpdateServer,
 }
 
 impl Tool {
@@ -685,6 +686,17 @@ impl Tool {
                     }
                 }
             }),
+            Tool::UpdateServer => serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "update_server",
+                    "description": "Updates the bot itself by pulling new images and restarting containers. ONLY call this when explicitly asked to 'update', 'self-update', or 'upgrade'. This is a high-privilege administrative action.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            }),
         }
     }
 
@@ -724,6 +736,7 @@ impl Tool {
             "set_user_timezone" => Some(Tool::SetUserTimezone),
             "cancel_schedule" => Some(Tool::CancelSchedule),
             "list_schedules" => Some(Tool::ListSchedules),
+            "update_server" => Some(Tool::UpdateServer),
             _ => None,
         }
     }
@@ -1329,6 +1342,20 @@ impl Tool {
                     Ok(format!("Your reminders:\n\n{}", lines.join("\n")))
                 }
             }
+            Tool::UpdateServer => {
+                // Check if user is admin
+                let user = crate::db::queries::get_user(db_pool, user_id)
+                    .await?
+                    .ok_or_else(|| anyhow!("User not found"))?;
+
+                if !user.is_admin() {
+                    return Err(anyhow!(
+                        "Unauthorized: Only admins can trigger server updates."
+                    ));
+                }
+
+                self.perform_update_server().await
+            }
         }
     }
 
@@ -1932,6 +1959,44 @@ impl Tool {
         }
     }
 
+    async fn perform_update_server(&self) -> Result<String> {
+        let update_path = std::env::var("SERVER_UPDATE_PATH").map_err(|_| {
+            anyhow!("SERVER_UPDATE_PATH not configured in environment (check .env)")
+        })?;
+
+        tracing::info!("Starting server update at {}", update_path);
+
+        // 1. docker compose pull
+        let pull_output = std::process::Command::new("docker")
+            .args(["compose", "pull"])
+            .current_dir(&update_path)
+            .output()?;
+
+        let mut result_msg = String::from("Server update initiated.\n\n");
+
+        if !pull_output.status.success() {
+            let stderr = String::from_utf8_lossy(&pull_output.stderr);
+            return Err(anyhow!("Failed to pull images: {}", stderr));
+        }
+        result_msg.push_str("✅ Images pulled successfully.\n");
+
+        // 2. docker compose up -d
+        // Note: this will likely terminate this process if the image for this bot changed.
+        let up_output = std::process::Command::new("docker")
+            .args(["compose", "up", "-d"])
+            .current_dir(&update_path)
+            .output()?;
+
+        if !up_output.status.success() {
+            let stderr = String::from_utf8_lossy(&up_output.stderr);
+            return Err(anyhow!("Failed to start containers: {}", stderr));
+        }
+        result_msg.push_str("✅ Containers restarted successfully.\n");
+        result_msg.push_str("\nNote: The bot might restart and be offline for a few seconds.");
+
+        Ok(result_msg)
+    }
+
     async fn perform_download_music(
         &self,
         bot: &Bot,
@@ -2155,6 +2220,7 @@ pub fn get_available_tools(phase: u8) -> Vec<Tool> {
             Tool::SetUserTimezone,
             Tool::CancelSchedule,
             Tool::ListSchedules,
+            Tool::UpdateServer,
         ],
         _ => vec![],
     }
