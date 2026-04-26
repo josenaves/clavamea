@@ -1646,13 +1646,33 @@ impl Tool {
         allow_non_existent: bool,
         allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
     ) -> Result<std::path::PathBuf> {
-        // Check if sandbox is disabled globally
         let sandbox_disabled = std::env::var("DISABLE_PATH_SANDBOX")
             .map(|v| v.to_lowercase() == "true" || v == "1")
             .unwrap_or(false);
-
-        let path = std::path::Path::new(path_str);
         let base_path = std::env::current_dir()?;
+
+        self.validate_path_internal(
+            user_id,
+            path_str,
+            allow_non_existent,
+            allowed_paths,
+            &base_path,
+            sandbox_disabled,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn validate_path_internal(
+        &self,
+        user_id: i64,
+        path_str: &str,
+        allow_non_existent: bool,
+        allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
+        base_path: &std::path::Path,
+        sandbox_disabled: bool,
+    ) -> Result<std::path::PathBuf> {
+        let path = std::path::Path::new(path_str);
 
         // Resolve paths
         let absolute_path = if path.is_absolute() {
@@ -2398,8 +2418,6 @@ mod tests {
     async fn test_validate_path_user_fallback() -> anyhow::Result<()> {
         let temp = tempfile::tempdir()?;
         let base_path = temp.path().to_path_buf();
-        let original_dir = std::env::current_dir()?;
-        std::env::set_current_dir(&base_path)?;
 
         let user_id = 123456;
         let user_dir = base_path.join(format!("memory/{}", user_id));
@@ -2413,7 +2431,14 @@ mod tests {
         let allowed_paths = Arc::new(tokio::sync::RwLock::new(vec![]));
 
         let resolved = tool
-            .validate_path(user_id, "recipes/lasanha.md", false, allowed_paths)
+            .validate_path_internal(
+                user_id,
+                "recipes/lasanha.md",
+                false,
+                allowed_paths,
+                &base_path,
+                false,
+            )
             .await?;
 
         assert!(resolved.exists());
@@ -2424,7 +2449,6 @@ mod tests {
                 .contains("memory/123456/recipes/lasanha.md")
         );
 
-        std::env::set_current_dir(original_dir)?;
         Ok(())
     }
 
@@ -2432,8 +2456,6 @@ mod tests {
     async fn test_validate_path_rejects_path_outside_sandbox() -> anyhow::Result<()> {
         let temp = tempfile::tempdir()?;
         let base_path = temp.path().to_path_buf();
-        let original_dir = std::env::current_dir()?;
-        std::env::set_current_dir(&base_path)?;
 
         // Create a file outside the project (in /tmp)
         let outside = std::env::temp_dir().join("clavamea_test_outside");
@@ -2443,13 +2465,19 @@ mod tests {
         let allowed_paths = Arc::new(tokio::sync::RwLock::new(vec![]));
 
         let result = tool
-            .validate_path(1, outside.to_str().unwrap(), false, allowed_paths)
+            .validate_path_internal(
+                1,
+                outside.to_str().unwrap(),
+                false,
+                allowed_paths,
+                &base_path,
+                false,
+            )
             .await;
 
         assert!(result.is_err(), "Should reject path outside sandbox");
 
         let _ = std::fs::remove_file(&outside);
-        std::env::set_current_dir(original_dir)?;
         Ok(())
     }
 
@@ -2457,29 +2485,29 @@ mod tests {
     async fn test_validate_path_with_sandbox_disabled() -> anyhow::Result<()> {
         let temp = tempfile::tempdir()?;
         let base_path = temp.path().to_path_buf();
-        let original_dir = std::env::current_dir()?;
-        std::env::set_current_dir(&base_path)?;
 
         // Create file outside project
         let outside = std::env::temp_dir().join("clavamea_sandbox_off_test");
         std::fs::write(&outside, "accessible")?;
 
-        // Enable sandbox bypass
-        unsafe { std::env::set_var("DISABLE_PATH_SANDBOX", "true") };
-
         let tool = Tool::FileReader;
         let allowed_paths = Arc::new(tokio::sync::RwLock::new(vec![]));
 
         let result = tool
-            .validate_path(1, outside.to_str().unwrap(), false, allowed_paths)
+            .validate_path_internal(
+                1,
+                outside.to_str().unwrap(),
+                false,
+                allowed_paths,
+                &base_path,
+                true,
+            )
             .await;
 
         assert!(result.is_ok(), "Should allow path when sandbox is disabled");
 
         // Cleanup
-        unsafe { std::env::remove_var("DISABLE_PATH_SANDBOX") };
         let _ = std::fs::remove_file(&outside);
-        std::env::set_current_dir(original_dir)?;
         Ok(())
     }
 

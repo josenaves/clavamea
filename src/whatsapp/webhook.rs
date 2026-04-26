@@ -217,6 +217,12 @@ async fn process_whatsapp_message(
     let mut turn = 0;
     let max_turns = 20;
 
+    // Fetch user vehicles to inject into the LLM context
+    let vehicles = crate::db::queries::get_vehicles(&state.app_state.db_pool, user_id)
+        .await
+        .unwrap_or_default();
+    let vehicle_context = crate::db::models::Vehicle::format_list(&vehicles);
+
     // Look up user timezone if configured
     let user_tz = crate::db::queries::get_user(&state.app_state.db_pool, user_id)
         .await
@@ -255,9 +261,12 @@ async fn process_whatsapp_message(
                 user_id,
                 &memory,
                 &tools,
-                lang,
-                user_tz.as_deref(),
-                model_override,
+                crate::core::engine::GenerateOptions {
+                    lang,
+                    user_timezone: user_tz.as_deref(),
+                    model_override,
+                    vehicle_context: &vehicle_context,
+                },
             )
             .await
         {

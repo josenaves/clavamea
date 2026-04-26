@@ -129,7 +129,15 @@ async fn execute_bovespa_clipping(
 
     let response = state
         .engine
-        .generate(user_id, &memory, &tools, "pt", None, None)
+        .generate(
+            user_id,
+            &memory,
+            &tools,
+            crate::core::engine::GenerateOptions {
+                lang: "pt",
+                ..Default::default()
+            },
+        )
         .await?;
 
     match response {
@@ -412,7 +420,15 @@ async fn execute_web_search(
 
     let response = state
         .engine
-        .generate(user_id, &memory, &tools, "en", None, None)
+        .generate(
+            user_id,
+            &memory,
+            &tools,
+            crate::core::engine::GenerateOptions {
+                lang: "en",
+                ..Default::default()
+            },
+        )
         .await?;
 
     let text = match response {

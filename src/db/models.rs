@@ -87,6 +87,29 @@ pub struct Vehicle {
     pub created_at: DateTime<Utc>,
 }
 
+impl Vehicle {
+    /// Formats a list of vehicles into a string suitable for LLM context injection.
+    pub fn format_list(vehicles: &[Self]) -> String {
+        if vehicles.is_empty() {
+            String::new()
+        } else {
+            let list: Vec<String> = vehicles
+                .iter()
+                .map(|v| {
+                    format!(
+                        "- {} (Model: {}, Plate: {}, ID: {})",
+                        v.name,
+                        v.model.as_deref().unwrap_or("N/A"),
+                        v.plate.as_deref().unwrap_or("N/A"),
+                        v.id
+                    )
+                })
+                .collect();
+            format!("User Vehicles:\n{}\n\n", list.join("\n"))
+        }
+    }
+}
+
 /// A fuel log record in the database.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FuelLog {
@@ -168,4 +191,42 @@ pub struct BookChapter {
     pub title: String,
     pub filepath: String,
     pub created_at: DateTime<Utc>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vehicle_format_list_empty() {
+        let vehicles: Vec<Vehicle> = vec![];
+        let formatted = Vehicle::format_list(&vehicles);
+        assert_eq!(formatted, "");
+    }
+
+    #[test]
+    fn test_vehicle_format_list_with_items() {
+        let v1 = Vehicle {
+            id: 1,
+            user_id: 123,
+            name: "My Car".to_string(),
+            model: Some("VW Up".to_string()),
+            plate: Some("XXX-1234".to_string()),
+            created_at: Utc::now(),
+        };
+        let v2 = Vehicle {
+            id: 2,
+            user_id: 123,
+            name: "Motorcycle".to_string(),
+            model: None,
+            plate: None,
+            created_at: Utc::now(),
+        };
+
+        let vehicles = vec![v1, v2];
+        let formatted = Vehicle::format_list(&vehicles);
+
+        let expected = "User Vehicles:\n- My Car (Model: VW Up, Plate: XXX-1234, ID: 1)\n- Motorcycle (Model: N/A, Plate: N/A, ID: 2)\n\n";
+        assert_eq!(formatted, expected);
+    }
 }

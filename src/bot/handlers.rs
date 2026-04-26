@@ -320,6 +320,13 @@ async fn handle_message_internal(
         // Available tools for Phase 3 (WebSearch + FileReader + Memory + RAG)
         let tools = crate::core::tools::get_available_tools(3);
         let tools = filter_tools_for_user(tools, is_admin);
+
+        // Fetch user vehicles to inject into the LLM context
+        let vehicles = crate::db::queries::get_vehicles(&state.db_pool, user_id)
+            .await
+            .unwrap_or_default();
+        let vehicle_context = crate::db::models::Vehicle::format_list(&vehicles);
+
         let mut turn = 0;
         let max_turns = 20;
 
@@ -351,9 +358,12 @@ async fn handle_message_internal(
                     user_id,
                     &memory,
                     &tools,
-                    lang,
-                    user_record.as_ref().and_then(|u| u.timezone.as_deref()),
-                    model_override,
+                    crate::core::engine::GenerateOptions {
+                        lang,
+                        user_timezone: user_record.as_ref().and_then(|u| u.timezone.as_deref()),
+                        model_override,
+                        vehicle_context: &vehicle_context,
+                    },
                 )
                 .await
             {

@@ -39,6 +39,14 @@ pub struct EngineConfig {
     pub fallback_model_flash: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct GenerateOptions<'a> {
+    pub lang: &'a str,
+    pub user_timezone: Option<&'a str>,
+    pub model_override: Option<&'a str>,
+    pub vehicle_context: &'a str,
+}
+
 /// Main LLM engine struct.
 pub struct Engine {
     config: EngineConfig,
@@ -78,9 +86,7 @@ impl Engine {
         user_id: i64,
         memory: &ConversationMemory,
         tools: &[Tool],
-        _lang: &str,
-        user_timezone: Option<&str>,
-        model_override: Option<&str>,
+        options: GenerateOptions<'_>,
     ) -> Result<LLMResponse> {
         let memory_context = self.storage.build_context_string(user_id);
 
@@ -110,13 +116,13 @@ impl Engine {
             .format("%Y-%m-%d %H:%M:%S %Z")
             .to_string();
 
-        let tz_info = match user_timezone {
+        let tz_info = match options.user_timezone {
             Some(tz) => format!(". User timezone: {}", tz),
             None => String::new(),
         };
 
         // Use the system prompt builder from prompt.rs instead of hardcoded string
-        let base_system_prompt = crate::core::prompt::build_system_prompt(_lang);
+        let base_system_prompt = crate::core::prompt::build_system_prompt(options.lang);
         // Dynamically add update_server instructions if the tool is available
         let has_update_server = tools.iter().any(|t| matches!(t, Tool::UpdateServer));
         let update_server_instruction = if has_update_server {
@@ -144,12 +150,13 @@ impl Engine {
             {}Only call a tool when the user explicitly requests the corresponding action.\n\
             For casual conversation or questions, reply with text normally.\n\
             \n\
-            {}The current time is: {}{}.\n\n{}\n\n{}",
+            {}The current time is: {}{}.\n\n{}{}\n\n{}",
             base_system_prompt,
             update_server_instruction,
             update_server_auth,
             current_time,
             tz_info,
+            options.vehicle_context,
             rag_context,
             memory_context
         );
@@ -173,15 +180,18 @@ impl Engine {
 
         let model = if let Some(router_config) = &self.config.router {
             // Using OpenRouter/router
-            if model_override.is_some() {
-                model_override.unwrap_or(&self.config.model).to_string()
+            if options.model_override.is_some() {
+                options
+                    .model_override
+                    .unwrap_or(&self.config.model)
+                    .to_string()
             } else {
                 router_config.models[0].clone()
             }
         } else if self.config.nvidia_model_pro.is_some() || self.config.nvidia_model_flash.is_some()
         {
             // Using NVIDIA API with intelligent model selection
-            if let Some(over) = model_override {
+            if let Some(over) = options.model_override {
                 over.to_string()
             } else {
                 // Determine request type based on turn, prompt length and tools
@@ -218,7 +228,10 @@ impl Engine {
             }
         } else {
             // Direct API (DeepSeek or other)
-            model_override.unwrap_or(&self.config.model).to_string()
+            options
+                .model_override
+                .unwrap_or(&self.config.model)
+                .to_string()
         };
 
         // Determine if we're using NVIDIA API for special parameters
@@ -409,7 +422,7 @@ impl Engine {
                 current_payload["thinking"] = serde_json::json!({ "type": "disabled" });
 
                 // 3. Determine fallback model
-                let f_model = if let Some(over) = model_override {
+                let f_model = if let Some(over) = options.model_override {
                     over.to_string()
                 } else {
                     // Re-analyze for fallback model names

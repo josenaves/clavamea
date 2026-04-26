@@ -12,18 +12,24 @@ pub struct RagManager {
     db_pool: Pool,
 }
 
+use std::sync::OnceLock;
+
+static EMBEDDING_MODEL: OnceLock<Arc<TextEmbedding>> = OnceLock::new();
+
 impl RagManager {
     /// Create a new RagManager.
     pub fn new(db_pool: Pool) -> Result<Self> {
-        // Initialize the embedding model (this will download it on the first run)
-        let mut options = InitOptions::default();
-        options.model_name = EmbeddingModel::AllMiniLML6V2;
-        options.show_download_progress = true;
-
-        let model = TextEmbedding::try_new(options)?;
+        // Initialize the embedding model (this will download it on the first run).
+        // Uses OnceLock to prevent race conditions during concurrent test execution.
+        let model = EMBEDDING_MODEL.get_or_init(|| {
+            let mut options = InitOptions::default();
+            options.model_name = EmbeddingModel::AllMiniLML6V2;
+            options.show_download_progress = true;
+            Arc::new(TextEmbedding::try_new(options).expect("Failed to initialize embedding model"))
+        });
 
         Ok(Self {
-            embedding_model: Arc::new(model),
+            embedding_model: model.clone(),
             db_pool,
         })
     }
