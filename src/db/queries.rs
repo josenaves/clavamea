@@ -830,6 +830,17 @@ pub async fn insert_book_episode(
     Ok(result.last_insert_rowid())
 }
 
+/// Count the total number of book episodes for a user.
+pub async fn count_book_episodes(pool: &Pool, user_id: i64) -> Result<i64> {
+    let row = sqlx::query!(
+        "SELECT COUNT(*) as count FROM book_episodes WHERE user_id = ?",
+        user_id
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(row.count as i64)
+}
+
 /// Search book episodes.
 pub async fn search_book_episodes(
     pool: &Pool,

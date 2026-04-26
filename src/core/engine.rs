@@ -77,14 +77,20 @@ impl Engine {
         // RAG search for relevant DB data
         let mut rag_context = String::new();
         if let Some(rag) = &self.rag {
+            // Use the last user message as the query, fallback to generic if empty
+            let query = memory
+                .messages
+                .last()
+                .and_then(|m| m.content.as_deref())
+                .unwrap_or("book episodes writing chapters");
             if let Ok(results) = rag
-                .search(user_id, "vehicle car book episodes writing chapters", 5)
+                .search(user_id, query, 10) // Increased limit to 10 for better context
                 .await
             {
                 if !results.is_empty() {
                     rag_context = format!(
-                        "\n--- RELEVANT DATABASE DATA ---\n{}\n\n",
-                        results.join("\n\n")
+                        "\n--- RELEVANT DATABASE DATA (RAG) ---\n{}\n\n",
+                        results.join("\n\n---\n\n")
                     );
                 }
             }
@@ -99,11 +105,13 @@ impl Engine {
             None => String::new(),
         };
 
+        // Use the system prompt builder from prompt.rs instead of hardcoded string
+        let base_system_prompt = crate::core::prompt::build_system_prompt(_lang);
         let system_prompt = format!(
-            "You are ClavaMea, a helpful AI assistant. Always reply in the same language the user uses.\n\
+            "{}\n\
             You have access to tools — use them when the user asks for an action.\n\
             - schedule_reminder: for simple reminders without internet search\n\
-- schedule_web_search: for recurring reminders that search the web when triggered (sports scores, news, etc.)\n\
+            - schedule_web_search: for recurring reminders that search the web when triggered (sports scores, news, etc.)\n\
             - list_schedules: to list active reminders\n\
             - cancel_schedule: to cancel a reminder\n\
             - web_search: for current information\n\
@@ -112,10 +120,9 @@ impl Engine {
             - set_user_timezone: to set the user's timezone\n\
             Only call a tool when the user explicitly requests the corresponding action.\n\
             For casual conversation or questions, reply with text normally.\n\
-            DO NOT use Markdown tables — use bulleted lists or bold text instead.\n\
             \n\
             The current time is: {}{}.\n\n{}\n\n{}",
-            current_time, tz_info, rag_context, memory_context
+            base_system_prompt, current_time, tz_info, rag_context, memory_context
         );
 
         let mut msgs = vec![serde_json::json!({

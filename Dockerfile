@@ -1,7 +1,7 @@
 # Build Stage
 FROM rust:bookworm AS builder
 
-ARG APP_VERSION=1.8.1
+ARG APP_VERSION=1.10.3
 LABEL version="${APP_VERSION}"
 
 WORKDIR /usr/src/clavamea

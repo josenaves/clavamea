@@ -1171,9 +1171,24 @@ impl Tool {
                 )
                 .await?;
 
+                // Ingest into RAG for immediate retrieval
+                let _ = rag
+                    .ingest_document(
+                        user_id,
+                        "book_episodes",
+                        &format!("episode_{}", id),
+                        content,
+                    )
+                    .await;
+
+                // Get total count
+                let count = crate::db::queries::count_book_episodes(db_pool, user_id)
+                    .await
+                    .unwrap_or(0);
+
                 Ok(format!(
-                    "Successfully recorded book episode memory with ID: {}",
-                    id
+                    "Successfully recorded book episode memory. Database ID: {}. Total episodes: {}",
+                    id, count
                 ))
             }
             Tool::SearchBookEpisodes => {
