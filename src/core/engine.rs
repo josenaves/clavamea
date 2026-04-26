@@ -56,8 +56,8 @@ impl Engine {
     /// Create a new engine with the given configuration.
     pub fn new(config: EngineConfig) -> Result<Self> {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
-            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(30))
             .build()?;
         let storage = config.storage.clone();
         let allowed_paths = config.allowed_paths.clone();
@@ -213,28 +213,10 @@ impl Engine {
             "tool_choice": "auto",
         });
 
-        // Add thinking/reasoning parameters for NVIDIA models
+        // Add thinking/reasoning parameters for NVIDIA models if supported
+        // NOTE: We simplified this to standard OpenAI format to increase compatibility
         if is_nvidia {
-            // For NVIDIA API, we use extra_body for chat_template_kwargs
-            // Check if we have NVIDIA-specific model configuration
-            let model_flash = self.config.nvidia_model_flash.as_deref();
-
-            // Determine if we should enable thinking based on model type
-            let use_thinking = if let Some(flash) = model_flash {
-                // For flash models, enable thinking with high reasoning effort
-                model.contains(flash)
-            } else {
-                // Default to disabled or specifically for pro models if needed
-                false
-            };
-
-            payload["extra_body"] = serde_json::json!({
-                "chat_template_kwargs": {
-                    "thinking": use_thinking,
-                    // Add reasoning_effort for thinking models
-                    "reasoning_effort": if use_thinking { "high" } else { "" }
-                }
-            });
+            tracing::info!("NVIDIA request using model: {}", model);
         } else {
             // Default thinking disabled for non-NVIDIA APIs (OpenRouter/DeepSeek)
             payload["thinking"] = serde_json::json!({ "type": "disabled" });
@@ -444,7 +426,15 @@ impl Engine {
             }
 
             // No more options, return the error
-            return Err(anyhow::anyhow!("LLM Error: {}", last_error_msg));
+            let final_err = if last_error_msg.contains("402") {
+                format!(
+                    "{} (Please check your API balance for the fallback provider)",
+                    last_error_msg
+                )
+            } else {
+                last_error_msg
+            };
+            return Err(anyhow::anyhow!("LLM Error: {}", final_err));
         }
     }
 

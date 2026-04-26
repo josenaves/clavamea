@@ -24,6 +24,10 @@ pub struct AppState {
     pub max_conversation_length: usize,
     /// Telegram bot instance for proactive messaging.
     pub bot: teloxide::Bot,
+    /// Per-user locks to ensure sequential message processing.
+    pub user_locks: Arc<dashmap::DashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
+    /// Recently processed message IDs to prevent duplicates.
+    pub processed_messages: Arc<dashmap::DashSet<i32>>,
 }
 
 impl AppState {
@@ -48,6 +52,8 @@ impl AppState {
             owner_id,
             max_conversation_length,
             bot,
+            user_locks: Arc::new(dashmap::DashMap::new()),
+            processed_messages: Arc::new(dashmap::DashSet::new()),
         }
     }
 

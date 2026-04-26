@@ -1,5 +1,6 @@
 //! Telegram message and command handlers.
 
+use std::sync::Arc;
 use teloxide::prelude::*;
 use teloxide::types::{Message as TgMessage, ParseMode};
 
@@ -65,22 +66,55 @@ const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
 
 /// Handle incoming text messages.
 pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> ResponseResult<()> {
-    // Log the message
-    tracing::info!(
-        "Received message from {} ({}): {}",
-        msg.chat.id,
-        msg.from
-            .as_ref()
-            .map(|u| u.id.0.to_string())
-            .unwrap_or_default(),
-        msg.text().unwrap_or("[no text]")
-    );
-
     // Extract user_id from the sender
     let user_id = match &msg.from {
         Some(u) => u.id.0 as i64,
         None => return Ok(()), // Ignore messages without a sender
     };
+
+    let msg_id = msg.id.0;
+
+    // 1. Prevent processing the same message twice (e.g. Telegram retries)
+    if state.processed_messages.contains(&msg_id) {
+        return Ok(());
+    }
+    state.processed_messages.insert(msg_id);
+
+    // 2. Spawn a background task to process the message and return immediately to ACK Telegram
+    tokio::spawn(async move {
+        // 3. Ensure sequential processing for the same user
+        let lock = state
+            .user_locks
+            .entry(user_id)
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        let _guard = lock.lock().await;
+
+        if let Err(e) = handle_message_internal(bot, msg, state, user_id).await {
+            tracing::error!("Error in background message handler: {}", e);
+        }
+
+        // Optional: remove old message IDs from processed_messages to save memory
+        // if state.processed_messages.len() > 1000 { ... }
+    });
+
+    Ok(())
+}
+
+/// Internal logic for processing a message, now called within a lock and background task.
+async fn handle_message_internal(
+    bot: Bot,
+    msg: TgMessage,
+    state: AppState,
+    user_id: i64,
+) -> Result<(), anyhow::Error> {
+    // Log the message
+    tracing::info!(
+        "Received message from {} ({}): {}",
+        msg.chat.id,
+        user_id,
+        msg.text().unwrap_or("[no text]")
+    );
 
     let username = msg.from.as_ref().and_then(|u| u.username.as_deref());
 
