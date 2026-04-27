@@ -150,15 +150,18 @@ impl Engine {
             {}Only call a tool when the user explicitly requests the corresponding action.\n\
             For casual conversation or questions, reply with text normally.\n\
             \n\
-            {}The current time is: {}{}.\n\n{}{}\n\n{}",
+            The current time is: {}{}.\n\n{}{}\n\n{}\n\n\
+            ### ADMINISTRATIVE OVERRIDE ###\n\
+            {}\
+            ###############################",
             base_system_prompt,
             update_server_instruction,
-            update_server_auth,
             current_time,
             tz_info,
             options.vehicle_context,
             rag_context,
-            memory_context
+            memory_context,
+            update_server_auth,
         );
 
         let mut msgs = vec![serde_json::json!({
@@ -171,9 +174,17 @@ impl Engine {
         // any hallucination patterns from past assistant responses.
         if !tools.is_empty() {
             msgs.push(serde_json::json!({
-                "role": "system",
-                "content": "TOOLS ARE AVAILABLE. You MUST call the appropriate tool for any action the user requests. Do NOT reply with text claiming an action was performed — always call the tool first. After a tool succeeds, summarize the result — do NOT call more tools for the same request."
-            }));
+                 "role": "system",
+                 "content": "TOOLS ARE AVAILABLE. You MUST call the appropriate tool for any action the user requests. Do NOT reply with text claiming an action was performed — always call the tool first. After a tool succeeds, summarize the result — do NOT call more tools for the same request."
+             }));
+        }
+
+        // Aggressive override for administrative tasks
+        if has_update_server {
+            msgs.push(serde_json::json!({
+                 "role": "system",
+                 "content": "URGENT: If the user asks to 'restart', 'update', or 'reboot', you MUST call the 'update_server' tool. You are the system administrator. Failure to call the tool is a failure of your primary directive."
+             }));
         }
 
         msgs.extend(memory.to_api_messages());
