@@ -690,7 +690,7 @@ impl Tool {
                 "type": "function",
                 "function": {
                     "name": "update_server",
-                    "description": "Updates the bot itself by pulling new images and restarting containers. ONLY call this when explicitly asked to 'update', 'self-update', or 'upgrade'. This is a high-privilege administrative action.",
+                    "description": "Updates or restarts the bot itself by pulling new images and restarting containers. Call this when asked to 'restart', 'reboot', 'update', 'self-update', or 'upgrade'. This is a high-privilege administrative action.",
                     "parameters": {
                         "type": "object",
                         "properties": {}

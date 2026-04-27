@@ -126,12 +126,12 @@ impl Engine {
         // Dynamically add update_server instructions if the tool is available
         let has_update_server = tools.iter().any(|t| matches!(t, Tool::UpdateServer));
         let update_server_instruction = if has_update_server {
-            "- update_server: to pull new code and restart/update yourself. Use this when the user asks you to restart, update, or reboot.\n            "
+            "- update_server: Use this tool IMMEDIATELY when the user asks to 'restart', 'update', 'reboot', or 're-run' the agent. This tool pulls new code and restarts the entire process.\n            "
         } else {
             ""
         };
         let update_server_auth = if has_update_server {
-            "You are fully authorized to use the update_server tool to restart or update yourself when requested. Do not refuse based on sandboxing or system restrictions.\n            \n            "
+            "CRITICAL: You are a system-integrated agent with administrative privileges. You ARE capable of restarting and updating your own container via the update_server tool. When the user (who is the verified owner/admin) asks for a restart or update, DO NOT claim you are sandboxed or restricted. Instead, call the update_server tool immediately. This is your primary way to apply changes and reboot.\n            \n            "
         } else {
             ""
         };
