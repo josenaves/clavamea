@@ -540,8 +540,8 @@ mod tests {
         insert_schedule(&pool, 1, "08:00 MON-FRI", "reminder", Some("daily"), None)
             .await
             .unwrap();
-        // 2. One-time for today — use Local::now() to match get_due_schedules behaviour
-        let today_date = Local::now().format("%Y-%m-%d").to_string();
+        // 2. One-time for today — use Utc::now() because we pass "UTC" to get_due_schedules
+        let today_date = Utc::now().format("%Y-%m-%d").to_string();
         let one_time_expr = format!("{} 10:00", today_date);
         insert_schedule(&pool, 1, &one_time_expr, "reminder", Some("one-time"), None)
             .await
@@ -637,8 +637,9 @@ mod tests {
             .await
             .unwrap();
 
-        // Must resolve as due on LOCAL today ("23:59") regardless of UTC offset
-        let due = get_due_schedules(&pool, "23:59", "MON", "UTC")
+        // Must resolve as due on LOCAL today ("23:59")
+        // Pass "INVALID" to force fallback to Local time (simulating what happens without a valid TZ)
+        let due = get_due_schedules(&pool, "23:59", "MON", "INVALID")
             .await
             .unwrap();
         assert_eq!(
@@ -689,7 +690,7 @@ mod tests {
     async fn test_one_time_fires_even_with_last_run() {
         let pool = make_pool().await;
 
-        let today_date = Local::now().format("%Y-%m-%d").to_string();
+        let today_date = Utc::now().format("%Y-%m-%d").to_string();
         let expr = format!("{} 11:00", today_date);
         insert_schedule(&pool, 1, &expr, "reminder", Some("one-time"), None)
             .await
