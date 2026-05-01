@@ -1986,11 +1986,28 @@ impl Tool {
 
         tracing::info!("Starting server update at {}", update_path);
 
+        // Resolve docker binary path — the process may run with a restricted PATH
+        // inside a container, so we check common locations explicitly.
+        let docker_bin = Self::resolve_binary("docker", &[
+            "/usr/bin/docker",
+            "/usr/local/bin/docker",
+            "/usr/local/docker/docker",
+        ]);
+
+        tracing::info!("Using docker binary: {}", docker_bin);
+
+        // Build a sane PATH for child processes
+        let child_path = std::env::var("PATH")
+            .unwrap_or_default()
+            + ":/usr/bin:/usr/local/bin:/bin";
+
         // 1. docker compose pull
-        let pull_output = std::process::Command::new("docker")
+        let pull_output = std::process::Command::new(&docker_bin)
             .args(["compose", "pull"])
             .current_dir(&update_path)
-            .output()?;
+            .env("PATH", &child_path)
+            .output()
+            .map_err(|e| anyhow!("Failed to run docker ({}): {}", docker_bin, e))?;
 
         let mut result_msg = String::from("Server update initiated.\n\n");
 
@@ -2002,10 +2019,12 @@ impl Tool {
 
         // 2. docker compose up -d
         // Note: this will likely terminate this process if the image for this bot changed.
-        let up_output = std::process::Command::new("docker")
+        let up_output = std::process::Command::new(&docker_bin)
             .args(["compose", "up", "-d"])
             .current_dir(&update_path)
-            .output()?;
+            .env("PATH", &child_path)
+            .output()
+            .map_err(|e| anyhow!("Failed to run docker ({}): {}", docker_bin, e))?;
 
         if !up_output.status.success() {
             let stderr = String::from_utf8_lossy(&up_output.stderr);
@@ -2015,6 +2034,17 @@ impl Tool {
         result_msg.push_str("\nNote: The bot might restart and be offline for a few seconds.");
 
         Ok(result_msg)
+    }
+
+    /// Resolves a binary name by checking well-known absolute paths first,
+    /// falling back to the plain name (relies on PATH at runtime).
+    fn resolve_binary(name: &str, candidates: &[&str]) -> String {
+        for &path in candidates {
+            if std::path::Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+        name.to_string()
     }
 
     async fn perform_download_music(
