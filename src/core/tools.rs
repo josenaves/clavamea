@@ -1988,18 +1988,20 @@ impl Tool {
 
         // Resolve docker binary path — the process may run with a restricted PATH
         // inside a container, so we check common locations explicitly.
-        let docker_bin = Self::resolve_binary("docker", &[
-            "/usr/bin/docker",
-            "/usr/local/bin/docker",
-            "/usr/local/docker/docker",
-        ]);
+        let docker_bin = Self::resolve_binary(
+            "docker",
+            &[
+                "/usr/bin/docker",
+                "/usr/local/bin/docker",
+                "/usr/local/docker/docker",
+            ],
+        );
 
         tracing::info!("Using docker binary: {}", docker_bin);
 
         // Build a sane PATH for child processes
-        let child_path = std::env::var("PATH")
-            .unwrap_or_default()
-            + ":/usr/bin:/usr/local/bin:/bin";
+        let child_path =
+            std::env::var("PATH").unwrap_or_default() + ":/usr/bin:/usr/local/bin:/bin";
 
         // 1. docker compose pull
         let pull_output = std::process::Command::new(&docker_bin)
