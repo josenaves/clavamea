@@ -17,6 +17,11 @@ const BOT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Changelog shown when user requests via /changelog or /whatsnew.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
 
+**v1\.13\.0 — Gateway Concorrente & Retry Automático**
+• **Tratamento Concorrente\!** O bot agora processa múltiplos comandos e mensagens simultaneamente via tarefas assíncronas do Tokio\. Perguntas rápidas não esperam por buscas na web lentas\.
+• **Respostas com Telegram Replies\!** As respostas agora são enviadas como replies diretos às mensagens originais, mantendo a conversa organizada mesmo com execuções fora de ordem\.
+• **Retry com Recuo Exponencial\!** Retentativas com recuo exponencial \(`1s`, `2s`, `4s`, `8s`, `16s`\) para maior robustez no envio de mensagens e chamadas de LLM\.
+
 **v1\.12\.0 — Automação de Infraestrutura**
 • **Auto\-atualização\!** Admins agora podem solicitar que o bot se atualize no servidor via chat\.
 • O bot realiza o `pull` das novas imagens e reinicia os containers automaticamente\.
@@ -81,21 +86,11 @@ pub async fn handle_message(bot: Bot, msg: TgMessage, state: AppState) -> Respon
     state.processed_messages.insert(msg_id);
 
     // 2. Spawn a background task to process the message and return immediately to ACK Telegram
+    // Messages are processed concurrently and individually (no sequential user lock)
     tokio::spawn(async move {
-        // 3. Ensure sequential processing for the same user
-        let lock = state
-            .user_locks
-            .entry(user_id)
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone();
-        let _guard = lock.lock().await;
-
         if let Err(e) = handle_message_internal(bot, msg, state, user_id).await {
             tracing::error!("Error in background message handler: {}", e);
         }
-
-        // Optional: remove old message IDs from processed_messages to save memory
-        // if state.processed_messages.len() > 1000 { ... }
     });
 
     Ok(())
@@ -387,7 +382,7 @@ async fn handle_message_internal(
 
                     // Render Markdown to Telegram HTML
                     let rendered_content = renderer.render(&content);
-                    crate::bot::utils::send_chunked_message(&bot, msg.chat.id, &rendered_content)
+                    crate::bot::utils::send_chunked_message(&bot, msg.chat.id, &rendered_content, Some(msg.id))
                         .await?;
                     break;
                 }
