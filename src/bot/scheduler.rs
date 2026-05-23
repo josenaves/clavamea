@@ -149,6 +149,7 @@ async fn execute_bovespa_clipping(
                 &state.bot,
                 teloxide::types::ChatId(user_id),
                 &rendered,
+                None,
             )
             .await?;
 
@@ -378,6 +379,7 @@ async fn execute_reminder(
                 &bot,
                 teloxide::types::ChatId(user_id),
                 &rendered,
+                None,
             )
             .await
             .map_err(anyhow::Error::from)
@@ -443,9 +445,14 @@ async fn execute_web_search(
         let text = text.clone();
         let bot = bot.clone();
         async move {
-            crate::bot::utils::send_chunked_message(&bot, teloxide::types::ChatId(user_id), &text)
-                .await
-                .map_err(anyhow::Error::from)
+            crate::bot::utils::send_chunked_message(
+                &bot,
+                teloxide::types::ChatId(user_id),
+                &text,
+                None,
+            )
+            .await
+            .map_err(anyhow::Error::from)
         }
     })
     .await?;
