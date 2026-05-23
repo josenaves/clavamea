@@ -382,8 +382,13 @@ async fn handle_message_internal(
 
                     // Render Markdown to Telegram HTML
                     let rendered_content = renderer.render(&content);
-                    crate::bot::utils::send_chunked_message(&bot, msg.chat.id, &rendered_content, Some(msg.id))
-                        .await?;
+                    crate::bot::utils::send_chunked_message(
+                        &bot,
+                        msg.chat.id,
+                        &rendered_content,
+                        Some(msg.id),
+                    )
+                    .await?;
                     break;
                 }
                 Ok(LLMResponse::ToolCalls(tool_calls)) => {
