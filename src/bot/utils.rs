@@ -1,6 +1,6 @@
+use teloxide::payloads::SendMessageSetters;
 use teloxide::prelude::*;
 use teloxide::types::{ParseMode, ReplyParameters};
-use teloxide::payloads::SendMessageSetters;
 use tracing::{error, info, warn};
 
 /// Sends a message to Telegram using Teloxide, retrying with exponential backoff on failure.
@@ -29,29 +29,29 @@ pub async fn send_message_with_retry(
         }
 
         // Build the send request with optional parse mode and reply id
-                let send_result = {
-                    let mut builder = bot.send_message(chat_id, text);
-                    if let Some(mode) = parse_mode {
-                        builder = builder.parse_mode(mode);
-                    }
-                    if let Some(reply_id) = reply_to_message_id {
-                        builder = builder.reply_parameters(ReplyParameters::new(reply_id));
-                    }
-                    builder.await
-                };
-                match send_result {
-                    Ok(msg) => return Ok(msg),
-                    Err(e) => {
-                        error!(
-                            "Failed to send Telegram message to {} on attempt {}/{}: {}",
-                            chat_id,
-                            attempt + 1,
-                            max_attempts,
-                            e
-                        );
-                        last_error = Some(e);
-                    }
-                }
+        let send_result = {
+            let mut builder = bot.send_message(chat_id, text);
+            if let Some(mode) = parse_mode {
+                builder = builder.parse_mode(mode);
+            }
+            if let Some(reply_id) = reply_to_message_id {
+                builder = builder.reply_parameters(ReplyParameters::new(reply_id));
+            }
+            builder.await
+        };
+        match send_result {
+            Ok(msg) => return Ok(msg),
+            Err(e) => {
+                error!(
+                    "Failed to send Telegram message to {} on attempt {}/{}: {}",
+                    chat_id,
+                    attempt + 1,
+                    max_attempts,
+                    e
+                );
+                last_error = Some(e);
+            }
+        }
     }
 
     Err(last_error.expect("At least one attempt must have failed"))
