@@ -17,6 +17,12 @@ const BOT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Changelog shown when user requests via /changelog or /whatsnew.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
 
+**v1\.13\.1 — Correção de Falhas na Geração de Respostas**
+• **Diagnóstico Melhorado\!** Agora o erro detalhado aparece no chat quando a API falha, facilitando entender o que aconteceu\.
+• **Payload Otimizado\!** Corrigido envio de `tool_choice` sem `tools` e parâmetro `thinking` desnecessário para provedores não\-NVIDIA\.
+• **Model Overdrive\!** O modelo selecionado \(PRO/FLASH\) não é mais ignorado quando OpenRouter está configurado\.
+• **Modelos de Exemplo Atualizados\!** O `.env.example` agora contém modelos reais e funcionais para NVIDIA e OpenRouter\.
+
 **v1\.13\.0 — Gateway Concorrente & Retry Automático**
 • **Tratamento Concorrente\!** O bot agora processa múltiplos comandos e mensagens simultaneamente via tarefas assíncronas do Tokio\. Perguntas rápidas não esperam por buscas na web lentas\.
 • **Respostas com Telegram Replies\!** As respostas agora são enviadas como replies diretos às mensagens originais, mantendo a conversa organizada mesmo com execuções fora de ordem\.
@@ -462,11 +468,11 @@ async fn handle_message_internal(
                 }
                 Err(e) => {
                     tracing::error!("Engine error: {}", e);
-                    bot.send_message(
-                        msg.chat.id,
-                        "Sorry, I ran into an error generating a response.",
-                    )
-                    .await?;
+                    let error_msg = format!(
+                        "Sorry, I ran into an error generating a response.\n\n**Debug:** `{}`",
+                        e.to_string().chars().take(200).collect::<String>()
+                    );
+                    bot.send_message(msg.chat.id, error_msg).await?;
                     break;
                 }
             }

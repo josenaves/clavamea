@@ -253,22 +253,17 @@ impl Engine {
             "messages": msgs,
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
-            "tool_choice": "auto",
         });
 
-        // Add thinking/reasoning parameters for NVIDIA models if supported
-        // NOTE: We simplified this to standard OpenAI format to increase compatibility
-        if is_nvidia {
-            tracing::info!("NVIDIA request using model: {}", model);
-        } else {
-            // Default thinking disabled for non-NVIDIA APIs (OpenRouter/DeepSeek)
-            payload["thinking"] = serde_json::json!({ "type": "disabled" });
-        }
-
-        // Add tools if available
+        // Add tools if available — only then set tool_choice
         if !tools.is_empty() {
             let tool_definitions: Vec<Value> = tools.iter().map(|t| t.definition()).collect();
             payload["tools"] = serde_json::json!(tool_definitions);
+            payload["tool_choice"] = serde_json::json!("auto");
+        }
+
+        if is_nvidia {
+            tracing::info!("NVIDIA request using model: {}", model);
         }
 
         // Determine API endpoint and key based on router configuration
@@ -294,22 +289,28 @@ impl Engine {
         let mut current_payload = payload.clone();
 
         // OpenRouter specific payload adjustments
+        // When the handler explicitly sets model_override (e.g. tiered pro/flash),
+        // preserve it instead of overwriting with the router model list.
         if let Some(router_config) = &self.config.router {
-            let models = &router_config.models;
-            if !models.is_empty() {
-                let primary = &models[0];
-                let fallbacks = &models[1..];
-                current_payload["model"] = serde_json::json!(primary);
-                if !fallbacks.is_empty() {
-                    current_payload["extra_body"] = serde_json::json!({
-                        "models": fallbacks
-                    });
+            if options.model_override.is_none() {
+                let models = &router_config.models;
+                if !models.is_empty() {
+                    let primary = &models[0];
+                    let fallbacks = &models[1..];
+                    current_payload["model"] = serde_json::json!(primary);
+                    if !fallbacks.is_empty() {
+                        current_payload["extra_body"] = serde_json::json!({
+                            "models": fallbacks
+                        });
+                    }
+                    tracing::info!(
+                        "Requesting {} via OpenRouter with fallbacks: {:?}",
+                        primary,
+                        fallbacks
+                    );
                 }
-                tracing::info!(
-                    "Requesting {} via OpenRouter with fallbacks: {:?}",
-                    primary,
-                    fallbacks
-                );
+            } else {
+                tracing::info!("Using model override {} with OpenRouter endpoint", model);
             }
         }
 
@@ -370,7 +371,12 @@ impl Engine {
 
                         let content = message["content"]
                             .as_str()
-                            .unwrap_or("Sorry, I could not generate a response.")
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "LLM response missing 'content' field: {}",
+                                    res_text
+                                )
+                            })?
                             .to_string();
 
                         return Ok(LLMResponse::Text(content));
