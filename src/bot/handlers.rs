@@ -17,6 +17,12 @@ const BOT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Changelog shown when user requests via /changelog or /whatsnew.
 const CHANGELOG: &str = r#"🆕 **O ClavaMea foi atualizado\!**
 
+**v1\.14\.0 — Cadeia de Provedores Inteligente**
+• **3 Provedores em Sequência\!** Agora o bot tenta NVIDIA \(gratuito\) → OpenRouter \(gratuito\) → DeepSeek \(pago\) automaticamente\. Se um falha, o próximo entra em ação\.
+• **Créditos Esgotados\? Sem Problema\!** Quando a OpenRouter retorna erro 402 \(sem créditos\), o bot pula automaticamente para o próximo provedor\.
+• **Conteúdo Nulo\? Fallback\!** Quando um modelo retorna resposta vazia \(content:null\), o bot tenta o próximo provedor em vez de dar erro\.
+• **Arquitetura por Provedor\!** Cada provedor tem seus próprios modelos, max\_tokens e temperatura configuráveis independentemente\.
+
 **v1\.13\.1 — Correção de Falhas na Geração de Respostas**
 • **Diagnóstico Melhorado\!** Agora o erro detalhado aparece no chat quando a API falha, facilitando entender o que aconteceu\.
 • **Payload Otimizado\!** Corrigido envio de `tool_choice` sem `tools` e parâmetro `thinking` desnecessário para provedores não\-NVIDIA\.

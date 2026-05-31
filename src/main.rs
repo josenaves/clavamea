@@ -22,9 +22,13 @@ use teloxide::dptree;
 use tracing::{error, info, warn};
 
 use crate::bot::{router, state::AppState};
-use crate::core::engine::{Engine, EngineConfig};
+use crate::core::engine::{Engine, EngineConfig, ProviderConfig};
 use crate::db::connection;
 use crate::i18n::bundle::BundleManager;
+
+fn engine_config_providers_count(engine: &Engine) -> usize {
+    engine.config().providers.len()
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -200,230 +204,127 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Determine which LLM API to use (priority: NVIDIA > DeepSeek > OpenRouter > placeholder)
-    let has_nvidia = nvidia_api_url.is_some() && nvidia_api_key.is_some();
-    let has_deepseek = llm_api_url.is_some() && llm_api_key.is_some();
-    let has_openrouter = router_config.is_some();
-    let llm_provider = env::var("LLM_PROVIDER")
-        .unwrap_or_else(|_| "auto".to_string())
-        .to_lowercase();
+ // Build provider chain: NVIDIA (free) → OpenRouter (free) → DeepSeek (paid)
+ let has_nvidia = nvidia_api_url.is_some() && nvidia_api_key.is_some();
+ let has_deepseek = llm_api_url.is_some() && llm_api_key.is_some();
+ let has_openrouter = router_config.is_some();
 
-    let engine = if (llm_provider == "auto" || llm_provider == "nvidia") && has_nvidia {
-        // Use NVIDIA API
-        let api_url =
-            nvidia_api_url.unwrap_or_else(|| "https://integrate.api.nvidia.com/v1".to_string());
-        let api_key = nvidia_api_key.unwrap_or_else(|| "dummy".to_string());
+ let mut providers: Vec<ProviderConfig> = Vec::new();
 
-        let config = EngineConfig {
-            api_url,
-            api_key,
-            model: llm_model.clone(), // fallback model
-            model_pro: nvidia_model_pro.clone(),
-            model_flash: nvidia_model_flash.clone(),
-            max_tokens: nvidia_max_tokens.unwrap_or(llm_max_tokens),
-            temperature: nvidia_temperature.unwrap_or(llm_temperature),
-            storage: storage.clone(),
-            allowed_paths: dynamic_allowed_paths.clone(),
-            router: None, // NVIDIA doesn't use the router (we handle model selection ourselves)
-            rag: Some(rag.clone()),
-            nvidia_model_pro: nvidia_model_pro.clone(),
-            nvidia_model_flash: nvidia_model_flash.clone(),
-            nvidia_max_tokens,
-            nvidia_temperature,
-            fallback_api_url: llm_api_url.clone(),
-            fallback_api_key: llm_api_key.clone(),
-            fallback_model_pro: llm_model_pro.clone(),
-            fallback_model_flash: llm_model_flash.clone(),
-        };
-        match Engine::new(config) {
-            Ok(engine) => {
-                info!("LLM engine initialized with NVIDIA API.");
-                Arc::new(engine)
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to initialize LLM engine with NVIDIA: {}. Trying fallbacks.",
-                    e
-                );
-                // Fall through to DeepSeek/OpenRouter
-                drop(e); // suppress unused variable warning
-                if has_deepseek || has_openrouter {
-                    // Default to OpenRouter URL if only using router
-                    let api_url =
-                        llm_api_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
-                    let api_key = llm_api_key.unwrap_or_else(|| "dummy".to_string());
+ // 1. NVIDIA (free) — highest priority
+ if has_nvidia {
+     let nvidia_provider = ProviderConfig {
+         api_url: nvidia_api_url.clone().unwrap_or_else(|| "https://integrate.api.nvidia.com/v1".to_string()),
+         api_key: nvidia_api_key.clone().unwrap_or_default(),
+         model_pro: nvidia_model_pro.clone(),
+         model_flash: nvidia_model_flash.clone(),
+         max_tokens: nvidia_max_tokens.unwrap_or(llm_max_tokens),
+         temperature: nvidia_temperature.unwrap_or(llm_temperature),
+         router: None,
+         nvidia_model_pro: nvidia_model_pro.clone(),
+         nvidia_model_flash: nvidia_model_flash.clone(),
+         nvidia_max_tokens,
+         nvidia_temperature,
+     };
+     providers.push(nvidia_provider);
+     info!("Provider chain: NVIDIA (free) added.");
+ }
 
-                    let config = EngineConfig {
-                        api_url,
-                        api_key,
-                        model: llm_model.clone(),
-                        model_pro: llm_model_pro.clone(),
-                        model_flash: llm_model_flash.clone(),
-                        max_tokens: llm_max_tokens,
-                        temperature: llm_temperature,
-                        storage: storage.clone(),
-                        allowed_paths: dynamic_allowed_paths.clone(),
-                        router: router_config.clone(),
-                        rag: Some(rag.clone()),
-                        nvidia_model_pro: None,
-                        nvidia_model_flash: None,
-                        nvidia_max_tokens: None,
-                        nvidia_temperature: None,
-                        fallback_api_url: None,
-                        fallback_api_key: None,
-                        fallback_model_pro: None,
-                        fallback_model_flash: None,
-                    };
-                    match Engine::new(config) {
-                        Ok(engine) => {
-                            info!("LLM engine initialized with API (fallback).");
-                            Arc::new(engine)
-                        }
-                        Err(e) => {
-                            warn!("Failed to initialize LLM engine: {}. Using placeholder.", e);
-                            Arc::new(
-                                Engine::new(EngineConfig {
-                                    api_url: "placeholder".to_string(),
-                                    api_key: "placeholder".to_string(),
-                                    model: "placeholder".to_string(),
-                                    model_pro: None,
-                                    model_flash: None,
-                                    max_tokens: 4096,
-                                    temperature: 0.7,
-                                    storage: storage.clone(),
-                                    allowed_paths: dynamic_allowed_paths.clone(),
-                                    router: router_config.clone(),
-                                    rag: Some(rag.clone()),
-                                    nvidia_model_pro: None,
-                                    nvidia_model_flash: None,
-                                    nvidia_max_tokens: None,
-                                    nvidia_temperature: None,
-                                    fallback_api_url: None,
-                                    fallback_api_key: None,
-                                    fallback_model_pro: None,
-                                    fallback_model_flash: None,
-                                })
-                                .expect("Failed to init placeholder engine"),
-                            )
-                        }
-                    }
-                } else {
-                    warn!("LLM API configuration not found. Using placeholder engine.");
-                    Arc::new(
-                        Engine::new(EngineConfig {
-                            api_url: "placeholder".to_string(),
-                            api_key: "placeholder".to_string(),
-                            model: "placeholder".to_string(),
-                            model_pro: None,
-                            model_flash: None,
-                            max_tokens: 4096,
-                            temperature: 0.7,
-                            storage: storage.clone(),
-                            allowed_paths: dynamic_allowed_paths.clone(),
-                            router: router_config.clone(),
-                            rag: Some(rag.clone()),
-                            nvidia_model_pro: None,
-                            nvidia_model_flash: None,
-                            nvidia_max_tokens: None,
-                            nvidia_temperature: None,
-                            fallback_api_url: None,
-                            fallback_api_key: None,
-                            fallback_model_pro: None,
-                            fallback_model_flash: None,
-                        })
-                        .expect("Failed to init placeholder engine"),
-                    )
-                }
-            }
-        }
-    } else if (llm_provider == "auto" || llm_provider == "deepseek" || llm_provider == "openrouter")
-        && (has_openrouter || has_deepseek)
-    {
-        // Default to OpenRouter URL if only using router
-        let api_url = llm_api_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
-        let api_key = llm_api_key.unwrap_or_else(|| "dummy".to_string());
+ // 2. OpenRouter (free) — second priority
+ if has_openrouter {
+     let openrouter_provider = ProviderConfig {
+         api_url: "https://openrouter.ai/api/v1".to_string(),
+         api_key: llm_api_key.clone().unwrap_or_else(|| "dummy".to_string()),
+         model_pro: llm_model_pro.clone(),
+         model_flash: llm_model_flash.clone(),
+         max_tokens: llm_max_tokens,
+         temperature: llm_temperature,
+         router: router_config.clone(),
+         nvidia_model_pro: None,
+         nvidia_model_flash: None,
+         nvidia_max_tokens: None,
+         nvidia_temperature: None,
+     };
+     providers.push(openrouter_provider);
+     info!("Provider chain: OpenRouter (free) added.");
+ }
 
-        let config = EngineConfig {
-            api_url,
-            api_key,
-            model: llm_model,
-            model_pro: llm_model_pro.clone(),
-            model_flash: llm_model_flash.clone(),
-            max_tokens: llm_max_tokens,
-            temperature: llm_temperature,
-            storage: storage.clone(),
-            allowed_paths: dynamic_allowed_paths.clone(),
-            router: router_config.clone(),
-            rag: Some(rag.clone()),
-            nvidia_model_pro: None,
-            nvidia_model_flash: None,
-            nvidia_max_tokens: None,
-            nvidia_temperature: None,
-            fallback_api_url: None,
-            fallback_api_key: None,
-            fallback_model_pro: None,
-            fallback_model_flash: None,
-        };
-        match Engine::new(config) {
-            Ok(engine) => {
-                info!("LLM engine initialized with API.");
-                Arc::new(engine)
-            }
-            Err(e) => {
-                warn!("Failed to initialize LLM engine: {}. Using placeholder.", e);
-                Arc::new(
-                    Engine::new(EngineConfig {
-                        api_url: "placeholder".to_string(),
-                        api_key: "placeholder".to_string(),
-                        model: "placeholder".to_string(),
-                        model_pro: None,
-                        model_flash: None,
-                        max_tokens: 4096,
-                        temperature: 0.7,
-                        storage: storage.clone(),
-                        allowed_paths: dynamic_allowed_paths.clone(),
-                        router: router_config.clone(),
-                        rag: Some(rag.clone()),
-                        nvidia_model_pro: None,
-                        nvidia_model_flash: None,
-                        nvidia_max_tokens: None,
-                        nvidia_temperature: None,
-                        fallback_api_url: None,
-                        fallback_api_key: None,
-                        fallback_model_pro: None,
-                        fallback_model_flash: None,
-                    })
-                    .expect("Failed to init placeholder engine"),
-                )
-            }
-        }
-    } else {
-        warn!("LLM API configuration not found. Using placeholder engine.");
-        Arc::new(
-            Engine::new(EngineConfig {
-                api_url: "placeholder".to_string(),
-                api_key: "placeholder".to_string(),
-                model: "placeholder".to_string(),
-                model_pro: None,
-                model_flash: None,
-                max_tokens: 4096,
-                temperature: 0.7,
-                storage: storage.clone(),
-                allowed_paths: dynamic_allowed_paths.clone(),
-                router: router_config.clone(),
-                rag: Some(rag.clone()),
-                nvidia_model_pro: None,
-                nvidia_model_flash: None,
-                nvidia_max_tokens: None,
-                nvidia_temperature: None,
-                fallback_api_url: None,
-                fallback_api_key: None,
-                fallback_model_pro: None,
-                fallback_model_flash: None,
-            })
-            .expect("Failed to init placeholder engine"),
-        )
-    };
+ // 3. DeepSeek (paid) — last resort
+ if has_deepseek {
+     let deepseek_provider = ProviderConfig {
+         api_url: llm_api_url.clone().unwrap(),
+         api_key: llm_api_key.clone().unwrap(),
+         model_pro: llm_model_pro.clone(),
+         model_flash: llm_model_flash.clone(),
+         max_tokens: llm_max_tokens,
+         temperature: llm_temperature,
+         router: None,
+         nvidia_model_pro: None,
+         nvidia_model_flash: None,
+         nvidia_max_tokens: None,
+         nvidia_temperature: None,
+     };
+     providers.push(deepseek_provider);
+     info!("Provider chain: DeepSeek (paid) added.");
+ }
+
+ // model_pro/model_flash point to the first provider's models (for handlers.rs compatibility)
+ let (engine_model_pro, engine_model_flash) = if let Some(first) = providers.first() {
+     let is_nvidia = first.api_url.contains("integrate.api.nvidia.com");
+     if is_nvidia {
+         (first.nvidia_model_pro.clone(), first.nvidia_model_flash.clone())
+     } else if first.router.is_some() {
+         if let Some(ref router_cfg) = first.router {
+             (Some(router_cfg.models.first().cloned().unwrap_or_default()), None)
+         } else {
+             (first.model_pro.clone(), first.model_flash.clone())
+         }
+     } else {
+         (first.model_pro.clone(), first.model_flash.clone())
+     }
+ } else {
+     (None, None)
+ };
+
+ if providers.is_empty() {
+     warn!("No LLM providers configured. Using placeholder engine.");
+ }
+
+ let config = EngineConfig {
+     model: llm_model,
+     model_pro: engine_model_pro,
+     model_flash: engine_model_flash,
+     max_tokens: llm_max_tokens,
+     temperature: llm_temperature,
+     storage: storage.clone(),
+     allowed_paths: dynamic_allowed_paths.clone(),
+     rag: Some(rag.clone()),
+     providers,
+ };
+
+ let engine = match Engine::new(config) {
+     Ok(e) => {
+         info!("LLM engine initialized with {} provider(s).", engine_config_providers_count(&e));
+         Arc::new(e)
+     }
+     Err(e) => {
+         warn!("Failed to initialize LLM engine: {}. Using placeholder.", e);
+         Arc::new(
+             Engine::new(EngineConfig {
+                 model: "placeholder".to_string(),
+                 model_pro: None,
+                 model_flash: None,
+                 max_tokens: 4096,
+                 temperature: 0.7,
+                 storage: storage.clone(),
+                 allowed_paths: dynamic_allowed_paths.clone(),
+                 rag: Some(rag.clone()),
+                 providers: vec![],
+             })
+             .expect("Failed to init placeholder engine"),
+         )
+     }
+ };
 
     // Initialize Wasm runtime
     info!("Initializing Wasm runtime...");

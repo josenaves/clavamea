@@ -94,11 +94,14 @@ Shared via `Arc<AppState>`, contains:
 - `user_locks` — DashMap for per-user mutexes
 - `processed_messages` — DashSet for dedup
 
-### LLM Provider Chain (`src/main.rs:203-426`)
-Priority: `LLM_PROVIDER` env var → auto-detect
-- NVIDIA (if configured) → OpenRouter → DeepSeek → Placeholder
-- Fallback: if primary fails, try next provider
-- Tiered routing: Pro model (turn 0), Flash model (follow-ups)
+### LLM Provider Chain (`src/core/engine.rs`)
+Providers are tried in order: **NVIDIA (free) → OpenRouter (free) → DeepSeek (paid)**
+- Each provider is a `ProviderConfig` in `EngineConfig.providers: Vec<ProviderConfig>`
+- On failure (5xx/429): retry up to 2x with backoff within the same provider
+- On HTTP 402 (insufficient credits) or `content:null`: skip to next provider immediately
+- If all providers fail: return aggregated error with details from each
+- Tiered routing: Pro model (turn 0), Flash model (follow-ups) — resolved per-provider
+- `EngineConfig.model_pro/model_flash` point to the first provider's models (for handlers.rs compatibility)
 
 ### Conversation Loop (`src/bot/handlers.rs`)
 - Owner filter → authorization check → up to 20 turns
@@ -145,7 +148,7 @@ Priority: `LLM_PROVIDER` env var → auto-detect
 | `TELEGRAM_BOT_TOKEN` | **Yes** | — | From @BotFather |
 | `OWNER_ID` | **Yes** | — | Telegram numeric user ID |
 | `DATABASE_URL` | No | `sqlite:clavamea.db` | SQLite URL |
-| `LLM_PROVIDER` | No | `auto` | `auto`/`nvidia`/`openrouter`/`deepseek` |
+| `LLM_PROVIDER` | No | `auto` | Deprecated — providers are now always tried in chain order |
 | `LLM_API_URL` | Conditional | — | DeepSeek/OpenRouter URL |
 | `LLM_API_KEY` | Conditional | — | DeepSeek/OpenRouter key |
 | `LLM_MODEL` / `_PRO` / `_FLASH` | No | `deepseek-chat` | Model names |
@@ -198,7 +201,7 @@ Triggers on `main` pushes and `v*.*.*` tags → builds multi-platform and pushes
 | `src/bot/scheduler.rs` | ~473 | Background task scheduler |
 | `src/bot/state.rs` | ~64 | Shared AppState |
 | `src/bot/utils.rs` | ~175 | Message sending utilities |
-| `src/core/engine.rs` | ~494 | LLM API client |
+| `src/core/engine.rs` | ~493 | LLM API client (provider chain: NVIDIA→OpenRouter→DeepSeek) |
 | `src/core/tools.rs` | ~2280 | All tool definitions + executors |
 | `src/core/rag.rs` | ~219 | Local RAG |
 | `src/core/memory.rs` | ~141 | Conversation memory |

@@ -14,10 +14,34 @@ pub enum LLMResponse {
     ToolCalls(Vec<ToolCall>),
 }
 
-/// Configuration for the LLM engine.
-pub struct EngineConfig {
+impl LLMResponse {
+    fn is_empty(&self) -> bool {
+        match self {
+            LLMResponse::Text(s) => s.is_empty(),
+            LLMResponse::ToolCalls(tc) => tc.is_empty(),
+        }
+    }
+}
+
+/// Configuration for a single LLM provider.
+#[derive(Debug, Clone)]
+pub struct ProviderConfig {
     pub api_url: String,
     pub api_key: String,
+    pub model_pro: Option<String>,
+    pub model_flash: Option<String>,
+    pub max_tokens: u32,
+    pub temperature: f32,
+    pub router: Option<RouterConfig>,
+    /// NVIDIA-specific configuration
+    pub nvidia_model_pro: Option<String>,
+    pub nvidia_model_flash: Option<String>,
+    pub nvidia_max_tokens: Option<u32>,
+    pub nvidia_temperature: Option<f32>,
+}
+
+/// Configuration for the LLM engine.
+pub struct EngineConfig {
     pub model: String,
     pub model_pro: Option<String>,
     pub model_flash: Option<String>,
@@ -25,18 +49,8 @@ pub struct EngineConfig {
     pub temperature: f32,
     pub storage: Arc<MemoryStorage>,
     pub allowed_paths: Arc<tokio::sync::RwLock<Vec<String>>>,
-    pub router: Option<RouterConfig>,
     pub rag: Option<Arc<RagManager>>,
-    /// NVIDIA-specific configuration
-    pub nvidia_model_pro: Option<String>,
-    pub nvidia_model_flash: Option<String>,
-    pub nvidia_max_tokens: Option<u32>,
-    pub nvidia_temperature: Option<f32>,
-    /// Fallback API configuration (DeepSeek or other)
-    pub fallback_api_url: Option<String>,
-    pub fallback_api_key: Option<String>,
-    pub fallback_model_pro: Option<String>,
-    pub fallback_model_flash: Option<String>,
+    pub providers: Vec<ProviderConfig>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -189,7 +203,54 @@ impl Engine {
 
         msgs.extend(memory.to_api_messages());
 
-        let model = if let Some(router_config) = &self.config.router {
+        // Try each provider in order
+        let mut provider_errors = Vec::new();
+
+        for (idx, provider) in self.config.providers.iter().enumerate() {
+            tracing::info!("Trying provider {}/{}", idx + 1, self.config.providers.len());
+
+            let result = self.try_provider(provider, &msgs, tools, memory, &options).await;
+
+            match result {
+                Ok(response) => {
+                    tracing::info!("Provider {} succeeded.", idx + 1);
+                    // Validate response
+                    if response.is_empty() {
+                        tracing::warn!("Provider {} returned empty response.", idx + 1);
+                        // Treat as failure, try next provider
+                    } else {
+                        return Ok(response);
+                    }
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    tracing::warn!("Provider {} failed: {}", idx + 1, err_str);
+                    provider_errors.push(format!("Provider {}: {}", idx + 1, err_str));
+                    // Continue to next provider
+                }
+            }
+        }
+
+        // All providers failed
+        Err(anyhow::anyhow!(
+            "All LLM providers failed. Errors: {}",
+            provider_errors.join("; ")
+        ))
+    }
+
+    /// Try a single provider with retry logic.
+    async fn try_provider(
+        &self,
+        provider: &ProviderConfig,
+        msgs: &[Value],
+        tools: &[Tool],
+        memory: &ConversationMemory,
+        options: &GenerateOptions<'_>,
+    ) -> Result<LLMResponse> {
+        let is_nvidia = provider.api_url.contains("integrate.api.nvidia.com");
+
+        // Determine model for this provider
+        let model = if let Some(router_config) = &provider.router {
             // Using OpenRouter/router
             if options.model_override.is_some() {
                 options
@@ -199,21 +260,17 @@ impl Engine {
             } else {
                 router_config.models[0].clone()
             }
-        } else if self.config.nvidia_model_pro.is_some() || self.config.nvidia_model_flash.is_some()
-        {
-            // Using NVIDIA API with intelligent model selection
+        } else if provider.nvidia_model_pro.is_some() || provider.nvidia_model_flash.is_some() {
+            // Using NVIDIA API
             if let Some(over) = options.model_override {
                 over.to_string()
             } else {
-                // Determine request type based on turn, prompt length and tools
                 let prompt_len = memory
                     .messages
                     .last()
                     .and_then(|m| m.content.as_ref())
                     .map(|c| c.len())
                     .unwrap_or(0);
-
-                // For the turn count, we look at how many assistant messages are in memory
                 let turn = memory
                     .messages
                     .iter()
@@ -223,14 +280,12 @@ impl Engine {
                 let request_type = analyze_request(prompt_len, tools.len(), turn);
 
                 match request_type {
-                    RequestType::Complex => self
-                        .config
+                    RequestType::Complex => provider
                         .nvidia_model_pro
                         .as_deref()
                         .unwrap_or(&self.config.model)
                         .to_string(),
-                    RequestType::Simple => self
-                        .config
+                    RequestType::Simple => provider
                         .nvidia_model_flash
                         .as_deref()
                         .unwrap_or(&self.config.model)
@@ -238,21 +293,32 @@ impl Engine {
                 }
             }
         } else {
-            // Direct API (DeepSeek or other)
+            // Direct API
             options
                 .model_override
                 .unwrap_or(&self.config.model)
                 .to_string()
         };
 
-        // Determine if we're using NVIDIA API for special parameters
-        let is_nvidia = self.config.api_url.contains("integrate.api.nvidia.com");
+        // Use max_tokens from provider if available, otherwise from config
+        let max_tokens = if is_nvidia {
+            provider.nvidia_max_tokens.unwrap_or(self.config.max_tokens)
+        } else {
+            provider.max_tokens
+        };
+
+        // Use temperature from provider if available, otherwise from config
+        let temperature = if is_nvidia {
+            provider.nvidia_temperature.unwrap_or(self.config.temperature)
+        } else {
+            provider.temperature
+        };
 
         let mut payload = serde_json::json!({
             "model": model,
             "messages": msgs,
-            "max_tokens": self.config.max_tokens,
-            "temperature": self.config.temperature,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
         });
 
         // Add tools if available — only then set tool_choice
@@ -267,13 +333,13 @@ impl Engine {
         }
 
         // Determine API endpoint and key based on router configuration
-        let (api_url, api_key) = if let Some(router_config) = &self.config.router {
+        let (api_url, api_key) = if let Some(router_config) = &provider.router {
             (
                 "https://openrouter.ai/api/v1/chat/completions".to_string(),
                 router_config.api_key.clone(),
             )
         } else {
-            (self.config.api_url.clone(), self.config.api_key.clone())
+            (provider.api_url.clone(), provider.api_key.clone())
         };
 
         // Build endpoint URL
@@ -289,9 +355,7 @@ impl Engine {
         let mut current_payload = payload.clone();
 
         // OpenRouter specific payload adjustments
-        // When the handler explicitly sets model_override (e.g. tiered pro/flash),
-        // preserve it instead of overwriting with the router model list.
-        if let Some(router_config) = &self.config.router {
+        if let Some(router_config) = &provider.router {
             if options.model_override.is_none() {
                 let models = &router_config.models;
                 if !models.is_empty() {
@@ -314,10 +378,6 @@ impl Engine {
             }
         }
 
-        let mut current_endpoint = endpoint;
-        let mut current_api_key = api_key;
-        let mut is_fallback = false;
-
         let mut retry_count = 0;
         let max_retries = 2;
         let mut last_error_msg = String::from("No request made yet");
@@ -336,8 +396,8 @@ impl Engine {
 
             let res_result = self
                 .client
-                .post(&current_endpoint)
-                .bearer_auth(&current_api_key)
+                .post(&endpoint)
+                .bearer_auth(&api_key)
                 .json(&current_payload)
                 .send()
                 .await;
@@ -350,7 +410,8 @@ impl Engine {
                         tracing::debug!("LLM raw response: {}", res_text);
 
                         if res_text.is_empty() {
-                            return Err(anyhow::anyhow!("Empty response from model"));
+                            last_error_msg = "Empty response from model".to_string();
+                            anyhow::bail!("{}", last_error_msg);
                         }
 
                         let data: Value = serde_json::from_str(&res_text).map_err(|e| {
@@ -369,7 +430,13 @@ impl Engine {
                             return Ok(LLMResponse::ToolCalls(calls));
                         }
 
-                        let content = message["content"]
+                        // Check for content:null
+                        let content_val = &message["content"];
+                        if content_val.is_null() {
+                            anyhow::bail!("LLM response content is null: {}", res_text);
+                        }
+
+                        let content = content_val
                             .as_str()
                             .ok_or_else(|| {
                                 anyhow::anyhow!(
@@ -380,6 +447,12 @@ impl Engine {
                             .to_string();
 
                         return Ok(LLMResponse::Text(content));
+                    } else if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+                        // 402: payment required (insufficient credits) — skip to next provider immediately
+                        let err_text = res.text().await.unwrap_or_default();
+                        last_error_msg = format!("HTTP 402 (Payment Required): {}", err_text);
+                        tracing::warn!("Provider ran out of credits (402). Skipping to next.");
+                        anyhow::bail!("{}", last_error_msg);
                     } else if (status.is_server_error() || status.as_u16() == 429)
                         && retry_count < max_retries
                     {
@@ -391,6 +464,7 @@ impl Engine {
                         // Other error or no more retries
                         let err_text = res.text().await.unwrap_or_default();
                         last_error_msg = format!("HTTP {}: {}", status, err_text);
+                        anyhow::bail!("{}", last_error_msg);
                     }
                 }
                 Err(e) => {
@@ -400,90 +474,9 @@ impl Engine {
                         continue;
                     }
                     last_error_msg = format!("Network error: {}", e);
+                    anyhow::bail!("{}", last_error_msg);
                 }
             }
-
-            // If we're here, the request failed after retries (or was a non-retryable error)
-            if !is_fallback && self.config.fallback_api_url.is_some() {
-                tracing::warn!(
-                    "Primary LLM provider failed ({}). Trying fallback...",
-                    last_error_msg
-                );
-                is_fallback = true;
-                retry_count = 0; // Reset retries for fallback
-
-                // Setup fallback configuration
-                let f_url = self.config.fallback_api_url.clone().unwrap();
-                let f_key = self.config.fallback_api_key.clone().unwrap();
-
-                // Build fallback endpoint
-                let mut f_endpoint = f_url;
-                if !f_endpoint.ends_with("/chat/completions") {
-                    if f_endpoint.ends_with("/") {
-                        f_endpoint.push_str("chat/completions");
-                    } else {
-                        f_endpoint.push_str("/chat/completions");
-                    }
-                }
-
-                current_endpoint = f_endpoint;
-                current_api_key = f_key;
-
-                // Adjust payload for fallback (DeepSeek/OpenRouter)
-                // 1. Remove NVIDIA specific parameters
-                current_payload
-                    .as_object_mut()
-                    .unwrap()
-                    .remove("extra_body");
-                // 2. Disable thinking (default for fallback)
-                current_payload["thinking"] = serde_json::json!({ "type": "disabled" });
-
-                // 3. Determine fallback model
-                let f_model = if let Some(over) = options.model_override {
-                    over.to_string()
-                } else {
-                    // Re-analyze for fallback model names
-                    let prompt_len = memory
-                        .messages
-                        .last()
-                        .and_then(|m| m.content.as_ref())
-                        .map(|c| c.len())
-                        .unwrap_or(0);
-                    let turn = memory
-                        .messages
-                        .iter()
-                        .filter(|m| matches!(m.role, crate::core::memory::Role::Assistant))
-                        .count();
-                    let request_type = analyze_request(prompt_len, tools.len(), turn);
-
-                    match request_type {
-                        RequestType::Complex => self
-                            .config
-                            .fallback_model_pro
-                            .clone()
-                            .unwrap_or_else(|| self.config.model.clone()),
-                        RequestType::Simple => self
-                            .config
-                            .fallback_model_flash
-                            .clone()
-                            .unwrap_or_else(|| self.config.model.clone()),
-                    }
-                };
-                current_payload["model"] = serde_json::json!(f_model);
-
-                continue;
-            }
-
-            // No more options, return the error
-            let final_err = if last_error_msg.contains("402") {
-                format!(
-                    "{} (Please check your API balance for the fallback provider)",
-                    last_error_msg
-                )
-            } else {
-                last_error_msg
-            };
-            return Err(anyhow::anyhow!("LLM Error: {}", final_err));
         }
     }
 
