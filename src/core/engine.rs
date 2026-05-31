@@ -207,9 +207,15 @@ impl Engine {
         let mut provider_errors = Vec::new();
 
         for (idx, provider) in self.config.providers.iter().enumerate() {
-            tracing::info!("Trying provider {}/{}", idx + 1, self.config.providers.len());
+            tracing::info!(
+                "Trying provider {}/{}",
+                idx + 1,
+                self.config.providers.len()
+            );
 
-            let result = self.try_provider(provider, &msgs, tools, memory, &options).await;
+            let result = self
+                .try_provider(provider, &msgs, tools, memory, &options)
+                .await;
 
             match result {
                 Ok(response) => {
@@ -309,7 +315,9 @@ impl Engine {
 
         // Use temperature from provider if available, otherwise from config
         let temperature = if is_nvidia {
-            provider.nvidia_temperature.unwrap_or(self.config.temperature)
+            provider
+                .nvidia_temperature
+                .unwrap_or(self.config.temperature)
         } else {
             provider.temperature
         };

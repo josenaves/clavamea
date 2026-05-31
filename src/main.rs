@@ -204,127 +204,138 @@ async fn main() -> Result<()> {
         }
     });
 
- // Build provider chain: NVIDIA (free) → OpenRouter (free) → DeepSeek (paid)
- let has_nvidia = nvidia_api_url.is_some() && nvidia_api_key.is_some();
- let has_deepseek = llm_api_url.is_some() && llm_api_key.is_some();
- let has_openrouter = router_config.is_some();
+    // Build provider chain: NVIDIA (free) → OpenRouter (free) → DeepSeek (paid)
+    let has_nvidia = nvidia_api_url.is_some() && nvidia_api_key.is_some();
+    let has_deepseek = llm_api_url.is_some() && llm_api_key.is_some();
+    let has_openrouter = router_config.is_some();
 
- let mut providers: Vec<ProviderConfig> = Vec::new();
+    let mut providers: Vec<ProviderConfig> = Vec::new();
 
- // 1. NVIDIA (free) — highest priority
- if has_nvidia {
-     let nvidia_provider = ProviderConfig {
-         api_url: nvidia_api_url.clone().unwrap_or_else(|| "https://integrate.api.nvidia.com/v1".to_string()),
-         api_key: nvidia_api_key.clone().unwrap_or_default(),
-         model_pro: nvidia_model_pro.clone(),
-         model_flash: nvidia_model_flash.clone(),
-         max_tokens: nvidia_max_tokens.unwrap_or(llm_max_tokens),
-         temperature: nvidia_temperature.unwrap_or(llm_temperature),
-         router: None,
-         nvidia_model_pro: nvidia_model_pro.clone(),
-         nvidia_model_flash: nvidia_model_flash.clone(),
-         nvidia_max_tokens,
-         nvidia_temperature,
-     };
-     providers.push(nvidia_provider);
-     info!("Provider chain: NVIDIA (free) added.");
- }
+    // 1. NVIDIA (free) — highest priority
+    if has_nvidia {
+        let nvidia_provider = ProviderConfig {
+            api_url: nvidia_api_url
+                .clone()
+                .unwrap_or_else(|| "https://integrate.api.nvidia.com/v1".to_string()),
+            api_key: nvidia_api_key.clone().unwrap_or_default(),
+            model_pro: nvidia_model_pro.clone(),
+            model_flash: nvidia_model_flash.clone(),
+            max_tokens: nvidia_max_tokens.unwrap_or(llm_max_tokens),
+            temperature: nvidia_temperature.unwrap_or(llm_temperature),
+            router: None,
+            nvidia_model_pro: nvidia_model_pro.clone(),
+            nvidia_model_flash: nvidia_model_flash.clone(),
+            nvidia_max_tokens,
+            nvidia_temperature,
+        };
+        providers.push(nvidia_provider);
+        info!("Provider chain: NVIDIA (free) added.");
+    }
 
- // 2. OpenRouter (free) — second priority
- if has_openrouter {
-     let openrouter_provider = ProviderConfig {
-         api_url: "https://openrouter.ai/api/v1".to_string(),
-         api_key: llm_api_key.clone().unwrap_or_else(|| "dummy".to_string()),
-         model_pro: llm_model_pro.clone(),
-         model_flash: llm_model_flash.clone(),
-         max_tokens: llm_max_tokens,
-         temperature: llm_temperature,
-         router: router_config.clone(),
-         nvidia_model_pro: None,
-         nvidia_model_flash: None,
-         nvidia_max_tokens: None,
-         nvidia_temperature: None,
-     };
-     providers.push(openrouter_provider);
-     info!("Provider chain: OpenRouter (free) added.");
- }
+    // 2. OpenRouter (free) — second priority
+    if has_openrouter {
+        let openrouter_provider = ProviderConfig {
+            api_url: "https://openrouter.ai/api/v1".to_string(),
+            api_key: llm_api_key.clone().unwrap_or_else(|| "dummy".to_string()),
+            model_pro: llm_model_pro.clone(),
+            model_flash: llm_model_flash.clone(),
+            max_tokens: llm_max_tokens,
+            temperature: llm_temperature,
+            router: router_config.clone(),
+            nvidia_model_pro: None,
+            nvidia_model_flash: None,
+            nvidia_max_tokens: None,
+            nvidia_temperature: None,
+        };
+        providers.push(openrouter_provider);
+        info!("Provider chain: OpenRouter (free) added.");
+    }
 
- // 3. DeepSeek (paid) — last resort
- if has_deepseek {
-     let deepseek_provider = ProviderConfig {
-         api_url: llm_api_url.clone().unwrap(),
-         api_key: llm_api_key.clone().unwrap(),
-         model_pro: llm_model_pro.clone(),
-         model_flash: llm_model_flash.clone(),
-         max_tokens: llm_max_tokens,
-         temperature: llm_temperature,
-         router: None,
-         nvidia_model_pro: None,
-         nvidia_model_flash: None,
-         nvidia_max_tokens: None,
-         nvidia_temperature: None,
-     };
-     providers.push(deepseek_provider);
-     info!("Provider chain: DeepSeek (paid) added.");
- }
+    // 3. DeepSeek (paid) — last resort
+    if has_deepseek {
+        let deepseek_provider = ProviderConfig {
+            api_url: llm_api_url.clone().unwrap(),
+            api_key: llm_api_key.clone().unwrap(),
+            model_pro: llm_model_pro.clone(),
+            model_flash: llm_model_flash.clone(),
+            max_tokens: llm_max_tokens,
+            temperature: llm_temperature,
+            router: None,
+            nvidia_model_pro: None,
+            nvidia_model_flash: None,
+            nvidia_max_tokens: None,
+            nvidia_temperature: None,
+        };
+        providers.push(deepseek_provider);
+        info!("Provider chain: DeepSeek (paid) added.");
+    }
 
- // model_pro/model_flash point to the first provider's models (for handlers.rs compatibility)
- let (engine_model_pro, engine_model_flash) = if let Some(first) = providers.first() {
-     let is_nvidia = first.api_url.contains("integrate.api.nvidia.com");
-     if is_nvidia {
-         (first.nvidia_model_pro.clone(), first.nvidia_model_flash.clone())
-     } else if first.router.is_some() {
-         if let Some(ref router_cfg) = first.router {
-             (Some(router_cfg.models.first().cloned().unwrap_or_default()), None)
-         } else {
-             (first.model_pro.clone(), first.model_flash.clone())
-         }
-     } else {
-         (first.model_pro.clone(), first.model_flash.clone())
-     }
- } else {
-     (None, None)
- };
+    // model_pro/model_flash point to the first provider's models (for handlers.rs compatibility)
+    let (engine_model_pro, engine_model_flash) = if let Some(first) = providers.first() {
+        let is_nvidia = first.api_url.contains("integrate.api.nvidia.com");
+        if is_nvidia {
+            (
+                first.nvidia_model_pro.clone(),
+                first.nvidia_model_flash.clone(),
+            )
+        } else if first.router.is_some() {
+            if let Some(ref router_cfg) = first.router {
+                (
+                    Some(router_cfg.models.first().cloned().unwrap_or_default()),
+                    None,
+                )
+            } else {
+                (first.model_pro.clone(), first.model_flash.clone())
+            }
+        } else {
+            (first.model_pro.clone(), first.model_flash.clone())
+        }
+    } else {
+        (None, None)
+    };
 
- if providers.is_empty() {
-     warn!("No LLM providers configured. Using placeholder engine.");
- }
+    if providers.is_empty() {
+        warn!("No LLM providers configured. Using placeholder engine.");
+    }
 
- let config = EngineConfig {
-     model: llm_model,
-     model_pro: engine_model_pro,
-     model_flash: engine_model_flash,
-     max_tokens: llm_max_tokens,
-     temperature: llm_temperature,
-     storage: storage.clone(),
-     allowed_paths: dynamic_allowed_paths.clone(),
-     rag: Some(rag.clone()),
-     providers,
- };
+    let config = EngineConfig {
+        model: llm_model,
+        model_pro: engine_model_pro,
+        model_flash: engine_model_flash,
+        max_tokens: llm_max_tokens,
+        temperature: llm_temperature,
+        storage: storage.clone(),
+        allowed_paths: dynamic_allowed_paths.clone(),
+        rag: Some(rag.clone()),
+        providers,
+    };
 
- let engine = match Engine::new(config) {
-     Ok(e) => {
-         info!("LLM engine initialized with {} provider(s).", engine_config_providers_count(&e));
-         Arc::new(e)
-     }
-     Err(e) => {
-         warn!("Failed to initialize LLM engine: {}. Using placeholder.", e);
-         Arc::new(
-             Engine::new(EngineConfig {
-                 model: "placeholder".to_string(),
-                 model_pro: None,
-                 model_flash: None,
-                 max_tokens: 4096,
-                 temperature: 0.7,
-                 storage: storage.clone(),
-                 allowed_paths: dynamic_allowed_paths.clone(),
-                 rag: Some(rag.clone()),
-                 providers: vec![],
-             })
-             .expect("Failed to init placeholder engine"),
-         )
-     }
- };
+    let engine = match Engine::new(config) {
+        Ok(e) => {
+            info!(
+                "LLM engine initialized with {} provider(s).",
+                engine_config_providers_count(&e)
+            );
+            Arc::new(e)
+        }
+        Err(e) => {
+            warn!("Failed to initialize LLM engine: {}. Using placeholder.", e);
+            Arc::new(
+                Engine::new(EngineConfig {
+                    model: "placeholder".to_string(),
+                    model_pro: None,
+                    model_flash: None,
+                    max_tokens: 4096,
+                    temperature: 0.7,
+                    storage: storage.clone(),
+                    allowed_paths: dynamic_allowed_paths.clone(),
+                    rag: Some(rag.clone()),
+                    providers: vec![],
+                })
+                .expect("Failed to init placeholder engine"),
+            )
+        }
+    };
 
     // Initialize Wasm runtime
     info!("Initializing Wasm runtime...");
